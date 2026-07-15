@@ -1,0 +1,240 @@
+﻿Nuwa Air-H202 / Kebbi APK 建置與安裝流程
+=====================================
+
+本文件記錄這次從加入 Nuwa SDK AAR 到把 APK 安裝到 Nuwa Air-H202 的完整流程。
+
+專案位置
+--------
+C:\kebbi
+
+Nuwa SDK AAR 位置
+-----------------
+C:\kebbi\NuwaSDK-2021-07-08_1058_2.1.0.08_e21fe7.aar
+
+產出的 APK 位置
+---------------
+C:\kebbi\app\build\outputs\apk\debug\app-debug.apk
+
+一、把 Nuwa SDK AAR 加入 Android 專案
+-------------------------------------
+1. 在 app 模組底下建立 libs 資料夾：
+
+   C:\kebbi\app\libs
+
+2. 把 Nuwa SDK AAR 複製進去：
+
+   C:\kebbi\app\libs\NuwaSDK-2021-07-08_1058_2.1.0.08_e21fe7.aar
+
+3. 修改：
+
+   C:\kebbi\app\build.gradle.kts
+
+   在 dependencies 裡加入：
+
+   implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+
+   範例：
+
+   dependencies {
+       implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+
+       implementation(libs.activity.ktx)
+       implementation(libs.appcompat)
+       implementation(libs.constraintlayout)
+       implementation(libs.material)
+       testImplementation(libs.junit)
+       androidTestImplementation(libs.espresso.core)
+       androidTestImplementation(libs.ext.junit)
+   }
+
+二、在 MainActivity 使用 Nuwa SDK
+--------------------------------
+修改檔案：
+
+C:\kebbi\app\src\main\java\com\example\myapplication\MainActivity.java
+
+這次使用的 Nuwa SDK 類別：
+
+import com.nuwarobotics.lib.action.manager.NuwaRobotManager;
+import com.nuwarobotics.lib.action.manager.NuwaVoiceManager;
+
+主要功能：
+
+1. 初始化機器人動作管理器：
+
+   robotManager = NuwaRobotManager.getInstance().init(this);
+
+2. 初始化語音管理器：
+
+   voiceManager = NuwaVoiceManager.getInstance().init(this);
+
+3. 讓 Kebbi 說話：
+
+   voiceManager.startTTS("Hello, I am Kebbi.");
+
+4. 取得 Kebbi 內建動作清單：
+
+   List<String> motions = robotManager.getMotionList();
+
+5. 播放第一個可用動作：
+
+   String motionName = motions.get(0);
+   robotManager.motionPlay(motionName, false);
+
+6. 停止動作與語音：
+
+   robotManager.motionStop(true);
+   voiceManager.stopTTS();
+
+三、修改畫面
+------------
+修改檔案：
+
+C:\kebbi\app\src\main\res\layout\activity_main.xml
+
+畫面加入三個按鈕：
+
+1. Speak
+   讓 Kebbi 說話。
+
+2. Play Motion
+   讀取 Kebbi 上可用的 motion list，並播放第一個動作。
+
+3. Stop Motion
+   停止動作與語音。
+
+四、建置 APK
+------------
+在 PowerShell 或命令提示字元進入專案資料夾：
+
+cd C:\kebbi
+
+執行 debug APK 建置：
+
+.\gradlew.bat assembleDebug
+
+成功後 APK 會出現在：
+
+C:\kebbi\app\build\outputs\apk\debug\app-debug.apk
+
+五、用 USB 連接 Nuwa Air-H202
+-----------------------------
+1. 用 USB 線連接電腦與 Nuwa Air-H202。
+
+2. 確認裝置有被 ADB 偵測到：
+
+   adb devices
+
+3. 正常情況會看到類似：
+
+   List of devices attached
+   10390NKDK1213700109    device
+
+   如果狀態是 device，代表可以安裝 APK。
+
+六、安裝 APK 到 Nuwa Air-H202
+-----------------------------
+在 C:\kebbi 底下執行：
+
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+成功時會看到：
+
+Performing Streamed Install
+Success
+
+-r 代表覆蓋安裝。如果之前已安裝同一個 applicationId，會直接更新。
+
+七、啟動 App
+------------
+安裝成功後，可以直接用 ADB 啟動：
+
+adb shell monkey -p com.example.myapplication -c android.intent.category.LAUNCHER 1
+
+成功後 Kebbi 螢幕上應該會開啟 app。
+
+畫面會有三個按鈕：
+
+Speak
+Play Motion
+Stop Motion
+
+八、常見問題
+------------
+1. adb devices 看不到裝置
+
+   請確認：
+   - USB 線有資料傳輸能力，不是只能充電的線。
+   - Nuwa Air-H202 已開機。
+   - 電腦有安裝 Android SDK Platform Tools。
+   - 裝置端允許 USB debugging。
+
+2. adb devices 顯示 unauthorized
+
+   表示裝置尚未授權這台電腦。
+   請看 Nuwa 螢幕上是否有 USB debugging 授權視窗，按允許後再執行：
+
+   adb devices
+
+3. adb install 失敗，顯示 INSTALL_FAILED_VERSION_DOWNGRADE
+
+   表示機器上已有較高 versionCode 的同 package app。
+   可以先解除安裝：
+
+   adb uninstall com.example.myapplication
+
+   再重新安裝：
+
+   adb install app\build\outputs\apk\debug\app-debug.apk
+
+4. App 打開但沒有動作
+
+   可能原因：
+   - Nuwa SDK service 尚未就緒。
+   - 這台機器沒有可用 motion。
+   - motion list 回傳空值。
+
+   目前程式會顯示：
+
+   No motion found on this Kebbi
+
+   代表 robotManager.getMotionList() 沒有取得可播放動作。
+
+5. 想改成指定動作
+
+   目前是播放 motions.get(0)，也就是第一個可用動作。
+   如果知道動作名稱，可以改成：
+
+   robotManager.motionPlay("動作名稱", false);
+
+九、本次實際執行過的命令
+------------------------
+1. 建置 APK：
+
+   .\gradlew.bat assembleDebug
+
+2. 確認裝置：
+
+   adb devices
+
+3. 安裝 APK：
+
+   adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+4. 啟動 App：
+
+   adb shell monkey -p com.example.myapplication -c android.intent.category.LAUNCHER 1
+
+十、目前 App 資訊
+----------------
+applicationId：
+
+com.example.myapplication
+
+主 Activity：
+
+com.example.myapplication.MainActivity
+
+APK：
+
+C:\kebbi\app\build\outputs\apk\debug\app-debug.apk

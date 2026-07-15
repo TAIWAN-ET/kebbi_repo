@@ -1,0 +1,319 @@
+﻿Kebbi 看影片學跳舞專題 - 操作方式、關鍵技術與目前功能
+====================================================
+
+文件日期：2026-07-08
+專案位置：C:\kebbi
+APK 位置：C:\kebbi\app\build\outputs\apk\debug\app-debug.apk
+App package：com.example.myapplication
+
+一、目前 App 可以做什麼
+------------------------
+目前這個 APK 已經完成第一階段功能：
+
+1. 可以安裝並啟動在 Nuwa Air-H202 / Kebbi 上。
+2. 可以使用 Nuwa SDK 讓 Kebbi 說話。
+3. 可以讀取 Kebbi 內建 motion list，播放第一個可用動作。
+4. 可以停止 Kebbi 動作與語音。
+5. 可以從裝置選擇一支影片。
+6. 可以用 MediaPipe Pose Landmarker 分析影片中的人體姿勢。
+7. 可以把影片中的人體關節點輸出成 CSV 檔案。
+
+目前 App 還沒有做到真正的「自動學會跳舞並完整跳出來」。
+現在完成的是關鍵前置步驟：從影片擷取人體骨架資料。
+之後要再把骨架資料轉換成 Kebbi 可執行的動作。
+
+二、App 畫面按鈕說明
+-------------------
+App 目前有四個主要按鈕：
+
+1. Speak
+
+   功能：
+   讓 Kebbi 說話。
+
+   目前語音內容：
+   Hello, I am Kebbi.
+
+2. Pick Dance Video
+
+   功能：
+   選擇一支影片，讓 MediaPipe 分析影片中的人體姿勢。
+
+   執行後 App 會：
+   - 每 200ms 從影片抽一張畫面。
+   - 對每張畫面做人體姿勢偵測。
+   - 統計有偵測到人體姿勢的 frame 數量。
+   - 輸出 CSV 檔案。
+
+3. Play Motion
+
+   功能：
+   讀取 Kebbi 內建的 motion list，播放第一個可用動作。
+
+   注意：
+   這目前只是測試 Kebbi 動作 API 是否可用，還不是根據影片自動生成的舞蹈。
+
+4. Stop Motion
+
+   功能：
+   停止目前動作，並停止 TTS 語音。
+
+三、實際操作流程
+----------------
+1. 確認 Nuwa Air-H202 已用 USB 連接電腦。
+
+2. 確認 ADB 看得到裝置：
+
+   adb devices
+
+   正常會看到類似：
+
+   List of devices attached
+   10390NKDK1213700109    device
+
+3. 如果還沒安裝 APK，先安裝：
+
+   cd C:\kebbi
+   adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+4. 啟動 App：
+
+   adb shell monkey -p com.example.myapplication -c android.intent.category.LAUNCHER 1
+
+5. 在 Kebbi 螢幕上按 Pick Dance Video。
+
+6. 選擇一支舞蹈影片。
+
+7. 等 App 分析完成。
+
+8. 分析完成後，畫面會顯示類似：
+
+   Pose frames: 120 / 150
+   Saved: /storage/emulated/0/Android/data/com.example.myapplication/files/dance_pose_landmarks.csv
+
+   意思是：
+   - 總共抽了 150 張 frame。
+   - 其中 120 張有偵測到人體姿勢。
+   - 關節點資料已存成 CSV。
+
+四、如何把 CSV 從 Kebbi 拉回電腦
+-------------------------------
+分析完成後，CSV 檔案會在 Kebbi 裝置內：
+
+/sdcard/Android/data/com.example.myapplication/files/dance_pose_landmarks.csv
+
+可以用以下指令拉回 E 槽：
+
+adb pull /sdcard/Android/data/com.example.myapplication/files/dance_pose_landmarks.csv E:\
+
+拉回後檔案位置會是：
+
+E:\dance_pose_landmarks.csv
+
+五、CSV 內容格式
+----------------
+CSV 欄位如下：
+
+time_ms,pose_index,landmark_index,x,y,z,visibility,presence
+
+欄位說明：
+
+1. time_ms
+   影片時間點，單位是毫秒。
+
+2. pose_index
+   第幾個人體姿勢。
+   目前 App 設定只偵測 1 個人，所以通常是 0。
+
+3. landmark_index
+   MediaPipe 的人體關節編號。
+   Pose Landmarker 每個人會輸出 33 個 landmark。
+
+4. x
+   關節點在畫面中的水平位置，通常是 0.0 到 1.0。
+
+5. y
+   關節點在畫面中的垂直位置，通常是 0.0 到 1.0。
+
+6. z
+   深度資訊。數值越小通常代表越靠近鏡頭。
+
+7. visibility
+   該關節點可見程度。
+
+8. presence
+   該關節點存在的信心值。
+
+六、關鍵技術
+------------
+1. Android APK
+
+   這個專題目前用 Android App 形式執行在 Nuwa Air-H202 上。
+   專案是 Gradle Android 專案，主要程式在：
+
+   C:\kebbi\app\src\main\java\com\example\myapplication\MainActivity.java
+
+2. Nuwa SDK
+
+   使用的 SDK 檔案：
+
+   C:\kebbi\app\libs\NuwaSDK-2021-07-08_1058_2.1.0.08_e21fe7.aar
+
+   目前用到的類別：
+
+   com.nuwarobotics.lib.action.manager.NuwaRobotManager
+   com.nuwarobotics.lib.action.manager.NuwaVoiceManager
+
+   目前用到的功能：
+
+   - voiceManager.startTTS(...)
+     讓 Kebbi 說話。
+
+   - robotManager.getMotionList()
+     取得 Kebbi 內建動作清單。
+
+   - robotManager.motionPlay(...)
+     播放 Kebbi 內建動作。
+
+   - robotManager.motionStop(true)
+     停止動作。
+
+3. MediaPipe Pose Landmarker
+
+   使用的 Gradle dependency：
+
+   com.google.mediapipe:tasks-vision:latest.release
+
+   使用的模型：
+
+   C:\kebbi\app\src\main\assets\pose_landmarker_lite.task
+
+   模型用途：
+   從圖片或影片 frame 中偵測人體骨架。
+
+   目前 App 使用 VIDEO 模式：
+
+   RunningMode.VIDEO
+
+   每個偵測結果會輸出 33 個人體 landmark。
+
+4. MediaMetadataRetriever
+
+   Android 內建類別，用來從影片檔案抽 frame。
+
+   目前設定：
+
+   每 200ms 抽一張 frame。
+
+   對應程式常數：
+
+   FRAME_INTERVAL_MS = 200L
+
+5. CSV 輸出
+
+   App 會把 MediaPipe 偵測到的關節點寫成 CSV。
+   這份 CSV 是下一階段動作轉換的輸入資料。
+
+七、目前已實現功能清單
+----------------------
+已完成：
+
+1. Nuwa SDK AAR 加入 Android 專案。
+2. APK 可以 build 成功。
+3. APK 可以安裝到 Nuwa Air-H202。
+4. App 可以啟動。
+5. Kebbi 可以 TTS 說話。
+6. Kebbi 可以播放內建 motion。
+7. Kebbi 可以停止 motion。
+8. App 可以選擇影片。
+9. App 可以用 MediaPipe 分析影片姿勢。
+10. App 可以產生 dance_pose_landmarks.csv。
+11. 可以用 adb pull 把 CSV 拉回電腦。
+
+八、目前尚未完成的功能
+----------------------
+尚未完成：
+
+1. 尚未把影片姿勢自動轉成 Kebbi 可執行舞蹈。
+2. 尚未建立人體 33 點到 Kebbi 關節或動作的對應規則。
+3. 尚未判斷節奏、拍點、速度。
+4. 尚未做動作平滑化。
+5. 尚未處理 Kebbi 身體限制，例如手臂角度、輪子移動、頭部轉動限制。
+6. 尚未使用 MotionGPT 生成或補全動作。
+7. 尚未建立完整的「影片輸入 -> 姿勢分析 -> 動作轉換 -> Kebbi 跳舞」自動流程。
+
+九、下一階段建議
+----------------
+建議下一步不要急著放 MotionGPT。
+應該先做一個簡單可展示的版本：
+
+1. 從 dance_pose_landmarks.csv 讀取人體姿勢。
+2. 判斷簡單姿勢事件，例如：
+   - 左手舉高
+   - 右手舉高
+   - 雙手舉高
+   - 身體左傾
+   - 身體右傾
+3. 把這些事件對應到 Kebbi 內建 motion：
+   - 左手舉高 -> 播放某個 motion
+   - 右手舉高 -> 播放某個 motion
+   - 雙手舉高 -> 播放某個 motion
+4. 先做到「看影片後產生一串動作列表」。
+5. 再讓 Kebbi 依照時間順序播放那串動作。
+
+這樣可以先完成專題展示核心：
+
+Kebbi 讀取舞蹈影片，分析人體姿勢，並根據影片做出對應動作。
+
+十、常用指令整理
+----------------
+建置 APK：
+
+cd C:\kebbi
+.\gradlew.bat assembleDebug
+
+安裝 APK：
+
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+啟動 App：
+
+adb shell monkey -p com.example.myapplication -c android.intent.category.LAUNCHER 1
+
+確認裝置：
+
+adb devices
+
+拉回 CSV：
+
+adb pull /sdcard/Android/data/com.example.myapplication/files/dance_pose_landmarks.csv E:\
+
+十一、重要檔案位置
+------------------
+MainActivity：
+
+C:\kebbi\app\src\main\java\com\example\myapplication\MainActivity.java
+
+畫面 layout：
+
+C:\kebbi\app\src\main\res\layout\activity_main.xml
+
+字串：
+
+C:\kebbi\app\src\main\res\values\strings.xml
+
+Gradle app 設定：
+
+C:\kebbi\app\build.gradle.kts
+
+Nuwa SDK：
+
+C:\kebbi\app\libs\NuwaSDK-2021-07-08_1058_2.1.0.08_e21fe7.aar
+
+MediaPipe 模型：
+
+C:\kebbi\app\src\main\assets\pose_landmarker_lite.task
+
+APK：
+
+C:\kebbi\app\build\outputs\apk\debug\app-debug.apk
