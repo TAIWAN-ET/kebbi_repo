@@ -11,6 +11,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
@@ -43,6 +44,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 不影響核心 Data Layer（Landmark / PoseFrame / MotionSequence / PoseIO / PosePipeline）。
  */
 public class CameraTestActivity extends AppCompatActivity {
+    private static final String TAG = "CameraTest";
     private static final String POSE_MODEL = "pose_landmarker_lite.task";
     private static final int CAMERA_PERMISSION = 1001;
     private static final long FRAME_INTERVAL_MS = 200L;
@@ -85,16 +87,19 @@ public class CameraTestActivity extends AppCompatActivity {
         @Override
         public void onOpened(@NonNull CameraDevice camera) {
             cameraDevice = camera;
+            Log.i(TAG, "Camera opened");
             startPreview();
         }
 
         @Override
         public void onDisconnected(@NonNull CameraDevice camera) {
+            Log.i(TAG, "Camera disconnected");
             closeCamera();
         }
 
         @Override
         public void onError(@NonNull CameraDevice camera, int error) {
+            Log.e(TAG, "Camera error: " + error);
             runOnUiThread(() -> statusText.setText("Camera error: " + error));
             closeCamera();
         }
@@ -148,6 +153,7 @@ public class CameraTestActivity extends AppCompatActivity {
             st.setDefaultBufferSize(PREVIEW_W, PREVIEW_H);
             manager.openCamera(cameraId, stateCallback, cameraHandler);
         } catch (CameraAccessException | SecurityException e) {
+            Log.e(TAG, "openCamera failed: " + e.getMessage());
             statusText.setText("openCamera failed: " + e.getMessage());
         }
     }
@@ -210,6 +216,7 @@ public class CameraTestActivity extends AppCompatActivity {
                             lastUiUpdate = now;
                             final long f = frameIndex.get();
                             final long d = detectedFrames.get();
+                            Log.i(TAG, "frames=" + f + " mediapipe=" + d + " ts=" + now);
                             runOnUiThread(() -> statusText.setText(
                                     "Camera OK\nframes: " + f + "\nMediaPipe received: " + d));
                         }
@@ -229,6 +236,7 @@ public class CameraTestActivity extends AppCompatActivity {
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             previewTexture.setSurfaceTextureListener(surfaceTextureListener);
         } else {
+            Log.e(TAG, "Camera permission denied");
             statusText.setText("Camera permission denied");
         }
     }
