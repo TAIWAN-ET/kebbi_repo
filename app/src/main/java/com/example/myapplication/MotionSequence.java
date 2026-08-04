@@ -10,10 +10,10 @@ import java.util.List;
  * 不用為影片和即時影像做兩套邏輯。
  *
  * <p>誰會呼叫它：
- * {@link PoseIO#readCsv(File)} 從 CSV 讀取時建立，
- * {@link PoseIO#readJson(File)} 從 JSON 讀取時建立，
+ * {@link PoseIO} 從 CSV 讀取時建立，
+ * {@link PoseIO} 從 JSON 讀取時建立，
  * {@link MainActivity} 從 MediaPipe 逐幀匯集時建立，
- * {@link PosePipeline#verify(java.io.File, java.io.File)} 做 round-trip 驗證時讀取。
+ * {@link PosePipeline} 做 round-trip 驗證時讀取。
  *
  * <p>不負責什麼：
  * 不解析任何檔案格式，不計算任何角度或距離，不處理 Android UI 或 MediaPipe 執行期。

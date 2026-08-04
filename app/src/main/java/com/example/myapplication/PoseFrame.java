@@ -11,8 +11,8 @@ import java.util.List;
  *
  * <p>誰會呼叫它：
  * {@link MainActivity} 從 MediaPipe 原始輸出轉換時建立，
- * {@link PoseIO#readCsv(File)} 從 CSV 讀取時建立，
- * {@link PoseIO#readJson(File)} 從 JSON 讀取時建立，
+ * {@link PoseIO} 從 CSV 讀取時建立，
+ * {@link PoseIO} 從 JSON 讀取時建立，
  * {@link PoseAnalyzer#analyzeFrame(PoseFrame)} 分析姿態特徵時讀取。
  *
  * <p>不負責什麼：

@@ -174,8 +174,6 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 打開系統影片選擇器。
-     *
-     * @param intent ACTION_OPEN_DOCUMENT intent
      */
     private void pickDanceVideo() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
