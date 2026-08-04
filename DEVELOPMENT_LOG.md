@@ -37,4 +37,9 @@
 
 ### Git 安全點
 - Commit: `5da1a00` - "safety point: before PoseMath verification work"
-- 包含 5 個檔案的變更（MainActivity.java, PoseAnalyzer.java, PoseFeature.java, strings.xml, MotionPoseMap.java）
+- Commit: `599f38d` - "feat: add PoseAnalyzer print button and documentation"
+- Commit: `93f0d0c` - "feat: analyzeBuiltInClip writes CSV for PoseAnalyzer results"
+
+### 新增功能
+- 「顯示 PoseAnalyzer 結果」按鈕：讀取 CSV 並逐幀印出角度
+- `analyzeBuiltInClip()` 現在會同時寫入 CSV 檔案，供 PoseAnalyzer 讀取

@@ -117,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Step5：綁定 UI 按鈕並註冊點擊事件
         Button speakButton = findViewById(R.id.speakButton);
+        poseAnalyzeButton = findViewById(R.id.poseAnalyzeButton);
         Button pickVideoButton = findViewById(R.id.pickVideoButton);
         Button motionButton = findViewById(R.id.motionButton);
         Button testMotionsButton = findViewById(R.id.testMotionsButton);
