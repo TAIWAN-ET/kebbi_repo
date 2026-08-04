@@ -10,8 +10,7 @@ import java.util.List;
  * 而非 Robot 指令。
  *
  * <p>誰會呼叫它：
- * {@link MainActivity#analyzeBuiltInClip()} 和 {@link MainActivity#analyzeDanceVideo(android.net.Uri)}
- * 逐幀計算特徵時呼叫，
+ * {@link MainActivity} 逐幀計算特徵時呼叫，
  * {@link PoseMathVerify} 做角度驗證時呼叫。
  *
  * <p>不負責什麼：
@@ -150,7 +149,7 @@ public final class PoseAnalyzer {
      * 由數值推導姿勢事件類型。
      *
      * <p>這張對應表是「數值 ↔ 機器人動作」校正的單一入口，日後調閾值只看這裡。
-     * 與 {@link MainActivity#detectDanceEvent} 同源。
+     * 與 MainActivity.detectDanceEvent 同源。
      *
      * @param leftHandUp  左手是否高於肩膀
      * @param rightHandUp 右手是否高於肩膀
