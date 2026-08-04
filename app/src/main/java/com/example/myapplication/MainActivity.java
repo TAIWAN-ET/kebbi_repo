@@ -8,6 +8,8 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.TextView;
 
+import androidx.appcompat.app.AlertDialog;
+
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -33,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -42,6 +45,11 @@ public class MainActivity extends AppCompatActivity {
     private static final long MIN_DANCE_EVENT_GAP_MS = 600L;
     private static final long MOTION_STEP_MS = 1200L;
     private static final int MOTION_TEST_COUNT = 5;
+    // 離線分析用：只解析前 10 秒、只取上半身關鍵點
+    private static final long CLIP_ANALYZE_MS = 10000L;
+    private static final String BUILTIN_CLIP = "dance_input.mp4";
+    // 上半身關鍵點（鼻/雙肩/雙肘/雙腕/雙髖），用於跳舞學習的最少集合
+    private static final int[] UPPER_BODY = {0, 11, 12, 13, 14, 15, 16, 23, 24};
 
     private NuwaRobotManager robotManager;
     private NuwaVoiceManager voiceManager;
@@ -81,8 +89,8 @@ public class MainActivity extends AppCompatActivity {
         Button cameraTestButton = findViewById(R.id.cameraTestButton);
 
         speakButton.setOnClickListener(v -> speak());
-        pickVideoButton.setOnClickListener(v -> pickDanceVideo());
-        motionButton.setOnClickListener(v -> playDanceMotion());
+        pickVideoButton.setOnClickListener(v -> analyzeBuiltInClip());
+        motionButton.setOnClickListener(v -> showMotionPicker());
         testMotionsButton.setOnClickListener(v -> testBuiltInMotions());
         stopButton.setOnClickListener(v -> stopMotion());
         cameraTestButton.setOnClickListener(v -> startActivity(new Intent(this, CameraTestActivity.class)));
@@ -130,6 +138,113 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             statusText.setText("No video picker found");
         }
+    }
+
+    /**
+     * 分析內建影片（需先用 adb push 放到 App 外部檔案目錄的 dance_input.mp4）。
+     * 只解析前 10 秒、只取上半身關鍵點，逐幀用 PoseAnalyzer 算角度，
+     * 最後把每幀摘要與整段統計顯示在 statusText，方便先看「這支影片數據長怎樣」。
+     */
+    private void analyzeBuiltInClip() {
+        File clip = new File(getExternalFilesDir(null), BUILTIN_CLIP);
+        if (!clip.exists()) {
+            statusText.setText("找不到 " + BUILTIN_CLIP + "\n請先:\nadb push 影片 "
+                    + getExternalFilesDir(null).getAbsolutePath() + "/" + BUILTIN_CLIP);
+            return;
+        }
+
+        statusText.setText("分析影片前 10 秒（上半身）...");
+        executorService.execute(() -> {
+            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            int sampledFrames = 0;
+            int poseFrames = 0;
+            float sumLeftElbow = 0f, sumRightElbow = 0f, sumShoulder = 0f, sumHead = 0f;
+            int leftHandUpCount = 0, rightHandUpCount = 0;
+            StringBuilder frameLog = new StringBuilder();
+
+            try {
+                retriever.setDataSource(clip.getAbsolutePath());
+                String durationText = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                long durationMs = durationText == null ? 0L : Long.parseLong(durationText);
+                long limitMs = Math.min(durationMs, CLIP_ANALYZE_MS);
+
+                for (long timeMs = 0; timeMs <= limitMs; timeMs += FRAME_INTERVAL_MS) {
+                    Bitmap frame = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST);
+                    if (frame == null) {
+                        continue;
+                    }
+                    sampledFrames++;
+                    MPImage image = new BitmapImageBuilder(frame).build();
+                    PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
+                    if (!result.landmarks().isEmpty()) {
+                        poseFrames++;
+                        List<NormalizedLandmark> raw = result.landmarks().get(0);
+                        PoseFrame pf = toPoseFrame(timeMs, raw);
+                        PoseFeature f = PoseAnalyzer.analyzeFrame(pf);
+                        sumLeftElbow += f.leftElbowAngle;
+                        sumRightElbow += f.rightElbowAngle;
+                        sumShoulder += f.shoulderSlope;
+                        sumHead += f.headYaw;
+                        if (f.leftWristAboveShoulder) leftHandUpCount++;
+                        if (f.rightWristAboveShoulder) rightHandUpCount++;
+                        frameLog.append(String.format(Locale.US,
+                                "t=%4d L肘%.0f R肘%.0f 肩%.0f 頭%.0f %s%s\n",
+                                timeMs, f.leftElbowAngle, f.rightElbowAngle,
+                                f.shoulderSlope, f.headYaw,
+                                f.leftWristAboveShoulder ? " LH" : "",
+                                f.rightWristAboveShoulder ? " RH" : ""));
+                    }
+                    frame.recycle();
+                }
+
+                int fp = poseFrames;
+                String summary = "分析完成（前 " + limitMs + "ms）\n"
+                        + "抽幀=" + sampledFrames + " 偵測到=" + poseFrames + "\n"
+                        + (fp > 0
+                            ? "平均 L肘=" + Math.round(sumLeftElbow / fp)
+                            + " R肘=" + Math.round(sumRightElbow / fp)
+                            + " 肩=" + Math.round(sumShoulder / fp)
+                            + " 頭=" + Math.round(sumHead / fp) + "\n"
+                            + "左手舉幀=" + leftHandUpCount + "/" + fp
+                            + " 右手舉幀=" + rightHandUpCount + "/" + fp + "\n"
+                            : "")
+                        + "---- 每幀 ----" + "\n" + frameLog;
+
+                File logFile = new File(getExternalFilesDir(null), "dance_upperbody_log.txt");
+                try (FileWriter w = new FileWriter(logFile)) {
+                    w.write(summary);
+                }
+                runOnUiThread(() -> statusText.setText(summary));
+            } catch (Exception e) {
+                runOnUiThread(() -> statusText.setText("分析失敗: " + e.getMessage()));
+            } finally {
+                try {
+                    retriever.release();
+                } catch (Exception ignored) {
+                }
+            }
+        });
+    }
+
+    /**
+     * 把 MediaPipe 的 NormalizedLandmark 列表轉成專案內部的 PoseFrame（純 Java POJO）。
+     * 保留完整 33 點（PoseAnalyzer 依賴固定 index），缺點補零；
+     * 「只看上半身」是在 analyzeBuiltInClip 的報告欄位中聚焦，而非砍掉點。
+     */
+    private PoseFrame toPoseFrame(long timeMs, List<NormalizedLandmark> raw) {
+        List<Landmark> landmarks = new ArrayList<>();
+        for (int id = 0; id < PoseLandmark.COUNT; id++) {
+            if (id < raw.size()) {
+                NormalizedLandmark lm = raw.get(id);
+                landmarks.add(new Landmark(
+                        lm.x(), lm.y(), lm.z(),
+                        lm.visibility().orElse(0.0f),
+                        lm.presence().orElse(0.0f)));
+            } else {
+                landmarks.add(new Landmark(0f, 0f, 0f, 0f, 0f));
+            }
+        }
+        return new PoseFrame((int) (timeMs / FRAME_INTERVAL_MS), timeMs, landmarks);
     }
 
     private void speak() {
@@ -297,6 +412,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        Map<String, String> eventToMotion = MotionPoseMap.buildEventToMotionMap(motions);
+
         dancePlaybackStopped = false;
         statusText.setText("Playing dance steps: " + steps.size());
         executorService.execute(() -> {
@@ -306,7 +423,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 DanceStep step = steps.get(i);
-                String motionName = chooseMotionForEvent(motions, step.eventType);
+                String motionName = eventToMotion.getOrDefault(step.eventType, motions.get(0));
                 int stepNumber = i + 1;
                 runOnUiThread(() -> statusText.setText(
                         "Dance " + stepNumber + " / " + steps.size()
@@ -328,33 +445,35 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private String chooseMotionForEvent(List<String> motions, String eventType) {
-        if (motions.size() == 1) {
-            return motions.get(0);
+    /**
+     * 點「Play Dance Motion」改為：彈出選單列出機器人上所有姿勢動作，
+     * 選一個就直接播出，方便你一支一支把數值與實際動作做校正對照。
+     */
+    private void showMotionPicker() {
+        if (robotManager == null || !robotManager.isInit()) {
+            statusText.setText("Nuwa robot SDK is not ready");
+            return;
         }
 
-        int index;
-        switch (eventType) {
-            case "LEFT_HAND_UP":
-                index = 0;
-                break;
-            case "RIGHT_HAND_UP":
-                index = 1;
-                break;
-            case "BOTH_HANDS_UP":
-                index = 2;
-                break;
-            case "LEAN_LEFT":
-                index = 3;
-                break;
-            case "LEAN_RIGHT":
-                index = 4;
-                break;
-            default:
-                index = 0;
-                break;
+        List<String> motions = robotManager.getMotionList();
+        if (motions == null || motions.isEmpty()) {
+            statusText.setText("No motion found on this Kebbi");
+            return;
         }
-        return motions.get(index % motions.size());
+
+        String[] motionArray = motions.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("選擇姿勢動作")
+                .setItems(motionArray, (dialog, which) -> {
+                    String motionName = motionArray[which];
+                    robotManager.motionPlay(motionName, false);
+                    String event = MotionPoseMap.eventForMotion(motions, motionName);
+                    statusText.setText("Playing: " + motionName
+                            + "\n對應事件: " + event
+                            + "\n(" + (which + 1) + "/" + motions.size() + ")");
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void playFirstAvailableMotion() {

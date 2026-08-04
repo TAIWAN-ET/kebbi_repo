@@ -14,9 +14,19 @@ public class PoseFeature {
     public float rightElbowAngle;
     public float leftArmAngle;
     public float rightArmAngle;
+    public float leftHipAngle;
+    public float rightHipAngle;
     public float shoulderSlope;
     public float torsoLean;
     public float headYaw;
+
+    // 手是否高於肩膀（對應 LEFT/RIGHT_HAND_UP 事件，校正用）
+    public boolean leftWristAboveShoulder;
+    public boolean rightWristAboveShoulder;
+    // 軀幹左右傾斜量（正=右傾，負=左傾，對應 LEAN_LEFT/RIGHT 事件）
+    public float bodyLean;
+    // 由數值推導出的「姿勢事件類型」，與 MainActivity.detectDanceEvent 同源
+    public String inferredEventType = "";
 
     public PoseFeature() {
     }
@@ -26,12 +36,18 @@ public class PoseFeature {
                 + " R-elbow=" + round(rightElbowAngle)
                 + " L-arm=" + round(leftArmAngle)
                 + " R-arm=" + round(rightArmAngle)
+                + " L-hip=" + round(leftHipAngle)
+                + " R-hip=" + round(rightHipAngle)
                 + " shoulderSlope=" + round(shoulderSlope)
                 + " torsoLean=" + round(torsoLean)
-                + " headYaw=" + round(headYaw);
+                + " headYaw=" + round(headYaw)
+                + " L-handUp=" + leftWristAboveShoulder
+                + " R-handUp=" + rightWristAboveShoulder
+                + " bodyLean=" + round(bodyLean)
+                + " event=" + inferredEventType;
     }
 
     private static float round(float value) {
-        return Math.round(value * 10f) / 10f;
+        return Math.round(value * 10f) / 1f / 10f;
     }
 }

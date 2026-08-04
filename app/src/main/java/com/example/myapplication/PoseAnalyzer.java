@@ -40,6 +40,8 @@ public final class PoseAnalyzer {
         feature.rightElbowAngle = PoseMath.calculateAngle(rightShoulder, rightElbow, rightWrist);
         feature.leftArmAngle = PoseMath.calculateAngle(leftShoulder, leftElbow, leftWrist);
         feature.rightArmAngle = PoseMath.calculateAngle(rightShoulder, rightElbow, rightWrist);
+        feature.leftHipAngle = PoseMath.calculateAngle(leftShoulder, leftHip, leftWrist);
+        feature.rightHipAngle = PoseMath.calculateAngle(rightShoulder, rightHip, rightWrist);
 
         feature.shoulderSlope = shoulderSlopeDeg(leftShoulder, rightShoulder);
         feature.torsoLean = torsoLeanDeg(leftShoulder, rightShoulder, leftHip, rightHip);
@@ -49,6 +51,19 @@ public final class PoseAnalyzer {
         feature.headYaw = shoulderWidth < 1e-6f
                 ? 0f
                 : (float) Math.toDegrees(Math.atan2(nose.x - shoulderMid.x, shoulderWidth));
+
+        // 手高於肩（y 軸向下，故手腕 y 小於肩膀 y 表示舉高）
+        feature.leftWristAboveShoulder = leftWrist.y < leftShoulder.y - 0.08f;
+        feature.rightWristAboveShoulder = rightWrist.y < rightShoulder.y - 0.08f;
+
+        // 軀幹左右傾斜：肩中點與髖中點的水平偏移（正=右傾）
+        Landmark hipMid = PoseMath.calculateMidPoint(leftHip, rightHip);
+        feature.bodyLean = shoulderMid.x - hipMid.x;
+
+        feature.inferredEventType = inferEventType(
+                feature.leftWristAboveShoulder,
+                feature.rightWristAboveShoulder,
+                feature.bodyLean);
 
         return feature;
     }
@@ -88,5 +103,28 @@ public final class PoseAnalyzer {
             return 0f;
         }
         return (float) Math.toDegrees(Math.atan2(shoulderMid.x - hipMid.x, width));
+    }
+
+    /**
+     * 由數值推導姿勢事件類型，與 MainActivity.detectDanceEvent 同源。
+     * 這張對應表是「數值 ↔ 機器人動作」校正的單一入口，日後調閾值只看這裡。
+     */
+    public static String inferEventType(boolean leftHandUp, boolean rightHandUp, float bodyLean) {
+        if (leftHandUp && rightHandUp) {
+            return "BOTH_HANDS_UP";
+        }
+        if (leftHandUp) {
+            return "LEFT_HAND_UP";
+        }
+        if (rightHandUp) {
+            return "RIGHT_HAND_UP";
+        }
+        if (bodyLean < -0.05f) {
+            return "LEAN_LEFT";
+        }
+        if (bodyLean > 0.05f) {
+            return "LEAN_RIGHT";
+        }
+        return "";
     }
 }

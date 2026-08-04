@@ -2,8 +2,8 @@
     <string name="app_name">Kebbi Dance</string>
     <string name="kebbi_ready">Kebbi control ready</string>
     <string name="speak_button">Speak</string>
-    <string name="motion_button">Play Dance Motion</string>
+    <string name="motion_button">選擇姿勢動作</string>
     <string name="test_motions_button">Test Built-in Motions</string>
     <string name="stop_button">Stop Motion</string>
-    <string name="pick_video_button">Pick Dance Video</string>
+    <string name="pick_video_button">分析影片(前10秒)</string>
 </resources>
