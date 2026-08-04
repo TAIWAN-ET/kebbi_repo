@@ -10,7 +10,7 @@ import java.util.List;
  * 後續的 {@link PoseAnalyzer}、{@link PoseMath}、{@link PoseIO} 都以此為輸入。
  *
  * <p>誰會呼叫它：
- * {@link MainActivity#toPoseFrame(long, java.util.List)} 從 MediaPipe 原始輸出轉換時建立，
+ * {@link MainActivity} 從 MediaPipe 原始輸出轉換時建立，
  * {@link PoseIO#readCsv(File)} 從 CSV 讀取時建立，
  * {@link PoseIO#readJson(File)} 從 JSON 讀取時建立，
  * {@link PoseAnalyzer#analyzeFrame(PoseFrame)} 分析姿態特徵時讀取。

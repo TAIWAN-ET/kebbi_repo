@@ -8,8 +8,7 @@ package com.example.myapplication;
  *
  * <p>誰會呼叫它：
  * {@link PoseAnalyzer#analyzeFrame(PoseFrame)} 每幀分析時產出，
- * {@link MainActivity#analyzeBuiltInClip()} 和 {@link MainActivity#analyzeDanceVideo(android.net.Uri)}
- * 逐幀計算特徵時使用，
+ * {@link MainActivity} 逐幀計算特徵時使用，
  * {@link MotionPoseMap} 根據特徵推導事件類型時間接使用。
  *
  * <p>不負責什麼：
@@ -45,7 +44,7 @@ public class PoseFeature {
     public boolean rightWristAboveShoulder;
     /** 軀幹左右傾斜量（正=右傾，負=左傾，對應 LEAN_LEFT/RIGHT 事件）。 */
     public float bodyLean;
-    /** 由數值推導出的「姿勢事件類型」，與 {@link MainActivity#detectDanceEvent} 同源。 */
+    /** 由數值推導出的「姿勢事件類型」，與 MainActivity.detectDanceEvent 同源。 */
     public String inferredEventType = "";
 
     /** 無參建構子。 */

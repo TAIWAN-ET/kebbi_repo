@@ -12,8 +12,7 @@ import java.util.List;
  * <p>誰會呼叫它：
  * {@link PoseIO#readCsv(File)} 從 CSV 讀取時建立，
  * {@link PoseIO#readJson(File)} 從 JSON 讀取時建立，
- * {@link MainActivity#analyzeBuiltInClip()} 和 {@link MainActivity#analyzeDanceVideo(android.net.Uri)}
- * 從 MediaPipe 逐幀匯集時建立，
+ * {@link MainActivity} 從 MediaPipe 逐幀匯集時建立，
  * {@link PosePipeline#verify(java.io.File, java.io.File)} 做 round-trip 驗證時讀取。
  *
  * <p>不負責什麼：

@@ -8,9 +8,8 @@ package com.example.myapplication;
  * <p>誰會呼叫它：
  * {@link PoseIO#readCsv(File)} 設定為 VIDEO，
  * {@link PoseIO#readJson(File)} 設定為 JSON，
- * {@link MainActivity#analyzeBuiltInClip()} 設定為 VIDEO，
- * {@link MainActivity#analyzeDanceVideo(android.net.Uri)} 設定為 VIDEO，
- * {@link CameraTestActivity} 設定為 CAMERA。
+ * {@link MainActivity} 做離線分析時設定為 VIDEO，
+ * {@link CameraTestActivity} 做即時攝影時設定為 CAMERA。
  *
  * <p>不負責什麼：
  * 不處理任何檔案 I/O，不解析任何資料，不依賴 Android 或 MediaPipe。

@@ -7,8 +7,8 @@ package com.example.myapplication;
  * 等任何姿態辨識模型的輸出都可以統一用此結構表示。
  *
  * <p>誰會呼叫它：
- * {@link MainActivity#toPoseFrame(long, java.util.List)} 從 MediaPipe 原始輸出轉換時建立，
- * {@link PoseIO#readCsv(File)} 從 CSV 讀取時建立，
+ * {@link MainActivity} 從 MediaPipe 原始輸出轉換時建立，
+ * {@link PoseIO} 從 CSV 讀取時建立，
  * {@link PoseMath} 各個靜態方法計算時建立新的 Landmark 實例。
  *
  * <p>不負責什麼：
