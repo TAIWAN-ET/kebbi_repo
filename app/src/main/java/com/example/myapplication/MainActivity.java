@@ -233,8 +233,13 @@ public class MainActivity extends AppCompatActivity {
                     }
                     sampledFrames++;
 
-                    // Step5：將 Bitmap 轉為 MediaPipe MPImage
-                    MPImage image = new BitmapImageBuilder(frame).build();
+                    // Step5：確保 Bitmap 為 ARGB_8888 格式（MediaPipe 要求）
+                    Bitmap argbFrame = frame.copy(Bitmap.Config.ARGB_8888, true);
+                    frame.recycle();
+
+                    // Step6：將 Bitmap 轉為 MediaPipe MPImage
+                    MPImage image = new BitmapImageBuilder(argbFrame).build();
+                    argbFrame.recycle();
 
                     // Step6：用 PoseLandmarker 偵測姿態
                     PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
@@ -434,8 +439,13 @@ public class MainActivity extends AppCompatActivity {
 
                     sampledFrames++;
 
-                    // Step4：將 Bitmap 轉為 MPImage 並偵測姿態
-                    MPImage image = new BitmapImageBuilder(frame).build();
+                    // Step4：確保 Bitmap 為 ARGB_8888 格式（MediaPipe 要求）
+                    Bitmap argbFrame = frame.copy(Bitmap.Config.ARGB_8888, true);
+                    frame.recycle();
+
+                    // Step5：將 Bitmap 轉為 MPImage 並偵測姿態
+                    MPImage image = new BitmapImageBuilder(argbFrame).build();
+                    argbFrame.recycle();
                     PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
                     if (!result.landmarks().isEmpty()) {
                         poseFrames++;
@@ -453,12 +463,10 @@ public class MainActivity extends AppCompatActivity {
                             lastEventType = eventType;
                             lastEventTimeMs = timeMs;
                         }
+                        }
                     }
 
-                    frame.recycle();
-                }
-
-                // Step7：保存結果並執行 round-trip 驗證
+                    // Step7：保存結果並執行 round-trip 驗證
                 int finalSampledFrames = sampledFrames;
                 int finalPoseFrames = poseFrames;
                 List<DanceStep> finalDanceSteps = new ArrayList<>(danceSteps);

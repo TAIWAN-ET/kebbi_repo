@@ -39,7 +39,8 @@
 - Commit: `5da1a00` - "safety point: before PoseMath verification work"
 - Commit: `599f38d` - "feat: add PoseAnalyzer print button and documentation"
 - Commit: `93f0d0c` - "feat: analyzeBuiltInClip writes CSV for PoseAnalyzer results"
+- Commit: `a0e6b9a` - "fix: initialize poseAnalyzeButton with findViewById"
 
-### 新增功能
-- 「顯示 PoseAnalyzer 結果」按鈕：讀取 CSV 並逐幀印出角度
-- `analyzeBuiltInClip()` 現在會同時寫入 CSV 檔案，供 PoseAnalyzer 讀取
+### Bug 修復
+- `poseAnalyzeButton` 未被 `findViewById` 初始化，導致 App 啟動時 crash
+- 已修正：添加 `poseAnalyzeButton = findViewById(R.id.poseAnalyzeButton);`
