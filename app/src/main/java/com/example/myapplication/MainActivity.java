@@ -237,10 +237,10 @@ public class MainActivity extends AppCompatActivity {
 
                     // Step6：將 Bitmap 轉為 MediaPipe MPImage
                     MPImage image = new BitmapImageBuilder(argbFrame).build();
-                    argbFrame.recycle();
 
-                    // Step6：用 PoseLandmarker 偵測姿態
+                    // Step7：用 PoseLandmarker 偵測姿態
                     PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
+                    argbFrame.recycle();
                     if (!result.landmarks().isEmpty()) {
                         poseFrames++;
 
@@ -268,7 +268,6 @@ public class MainActivity extends AppCompatActivity {
                                 f.leftWristAboveShoulder ? " LH" : "",
                                 f.rightWristAboveShoulder ? " RH" : ""));
                     }
-                    frame.recycle();
                 }
 
                 // Step9：關閉 CSV 寫入器
@@ -443,8 +442,8 @@ public class MainActivity extends AppCompatActivity {
 
                     // Step5：將 Bitmap 轉為 MPImage 並偵測姿態
                     MPImage image = new BitmapImageBuilder(argbFrame).build();
-                    argbFrame.recycle();
                     PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
+                    argbFrame.recycle();
                     if (!result.landmarks().isEmpty()) {
                         poseFrames++;
 
