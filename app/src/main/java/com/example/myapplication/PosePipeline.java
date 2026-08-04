@@ -11,9 +11,9 @@ import java.util.List;
  * 的資料完整性。MainActivity 只呼叫這一層，不直接碰 PoseIO。
  *
  * <p>誰會呼叫它：
- * {@link MainActivity#analyzeDanceVideo(android.net.Uri)} 在分析影片後呼叫 verify()
+ * {@link MainActivity} 在分析影片後呼叫 verify()
  * 確認 CSV 與 JSON 資料一致，
- * {@link MainActivity#analyzeBuiltInClip()} 在做離線分析時呼叫。
+ * 或在做離線分析時呼叫。
  *
  * <p>不負責什麼：
  * 不解析任何檔案格式（由 {@link PoseIO} 負責），不計算任何角度或距離，

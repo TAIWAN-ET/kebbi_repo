@@ -20,8 +20,7 @@ import java.util.TreeMap;
  *
  * <p>誰會呼叫它：
  * {@link PosePipeline#verify(java.io.File, java.io.File)} 做 round-trip 驗證時呼叫，
- * {@link MainActivity#analyzeDanceVideo(android.net.Uri)} 寫入 CSV 時呼叫，
- * {@link MainActivity#analyzeBuiltInClip()} 讀取 CSV 時呼叫。
+ * {@link MainActivity} 在分析影片時呼叫寫入 CSV。
  *
  * <p>不負責什麼：
  * 不計算任何角度或距離，不處理 Android UI 或 MediaPipe 執行期，

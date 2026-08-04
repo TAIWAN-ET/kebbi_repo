@@ -13,8 +13,7 @@ import java.util.Map;
  * 以後 PoseAnalyzer 推導出的 event 就能直接選到正確的 motion。
  *
  * <p>誰會呼叫它：
- * {@link MainActivity#playDanceMotion()} 在播放舞蹈時呼叫，
- * {@link MainActivity#showMotionPicker()} 在選擇動作時呼叫。
+ * {@link MainActivity} 在播放舞蹈或選擇動作時呼叫。
  *
  * <p>不負責什麼：
  * 不計算任何角度或距離，不處理檔案 I/O，

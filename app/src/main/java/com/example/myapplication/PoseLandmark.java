@@ -9,8 +9,7 @@ package com.example.myapplication;
  *
  * <p>誰會呼叫它：
  * {@link PoseAnalyzer#analyzeFrame(PoseFrame)} 取關節點時使用，
- * {@link MainActivity#toPoseFrame(long, java.util.List)} 轉換 MediaPipe 輸出時使用，
- * {@link MainActivity#detectDanceEvent(java.util.List)} 偵測舞蹈事件時使用。
+ * {@link MainActivity} 轉換 MediaPipe 輸出及偵測舞蹈事件時使用。
  *
  * <p>不負責什麼：
  * 不儲存任何 landmark 座標值，不計算任何角度或距離，不依賴 Android 或 MediaPipe 執行期。
@@ -24,26 +23,6 @@ public final class PoseLandmark {
 
     /** 鼻子（Nose）。 */
     public static final int NOSE = 0;
-    /** 左眼內側。 */
-    public static final int LEFT_EYE_INNER = 1;
-    /** 左眼。 */
-    public static final int LEFT_EYE = 2;
-    /** 左眼外側。 */
-    public static final int LEFT_EYE_OUTER = 3;
-    /** 右眼內側。 */
-    public static final int RIGHT_EYE_INNER = 4;
-    /** 右眼。 */
-    public static final int RIGHT_EYE = 5;
-    /** 右眼外側。 */
-    public static final int RIGHT_EYE_OUTER = 6;
-    /** 左耳。 */
-    public static final int LEFT_EAR = 7;
-    /** 右耳。 */
-    public static final int RIGHT_EAR = 8;
-    /** 嘴部左側。 */
-    public static final int MOUTH_LEFT = 9;
-    /** 嘴部右側。 */
-    public static final int MOUTH_RIGHT = 10;
     /** 左肩。 */
     public static final int LEFT_SHOULDER = 11;
     /** 右肩。 */

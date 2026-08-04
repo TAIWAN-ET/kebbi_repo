@@ -8,9 +8,7 @@ package com.example.myapplication;
  *
  * <p>誰會呼叫它：
  * {@link PoseAnalyzer#analyzeFrame(PoseFrame)} 計算各種角度時使用，
- * {@link MainActivity#analyzeBuiltInClip()} 和 {@link MainActivity#analyzeDanceVideo(android.net.Uri)}
- * 逐幀計算特徵時使用，
- * {@link PosePipeline#verifyEquality(MotionSequence, MotionSequence, String)} 座標比對時使用。
+ * {@link PosePipeline#verify(java.io.File, java.io.File)} 座標比對時使用。
  *
  * <p>不負責什麼：
  * 不解析任何檔案格式，不處理 Android UI 或 MediaPipe 執行期，
