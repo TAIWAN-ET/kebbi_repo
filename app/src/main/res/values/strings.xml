@@ -7,4 +7,6 @@
     <string name="stop_button">Stop Motion</string>
     <string name="pick_video_button">分析影片(前10秒)</string>
     <string name="pose_analyze_button">顯示 PoseAnalyzer 結果</string>
+    <string name="reset_button">Clear / Reset</string>
+    <string name="test_robot_button">Test Robot Connection</string>
 </resources>

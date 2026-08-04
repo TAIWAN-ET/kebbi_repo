@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.Button;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -76,6 +77,10 @@ public class MainActivity extends AppCompatActivity {
     private static final int[] UPPER_BODY = {0, 11, 12, 13, 14, 15, 16, 23, 24};
     // PoseAnalyzer 結果輸出用的 CSV 檔案名稱
     private static final String POSE_ANALYZE_CSV = "dance_pose_landmarks.csv";
+    // 動作播放間隔可調節（毫秒），供用戶在 UI 上調整
+    private static final int MOTION_STEP_MIN_MS = 500;
+    private static final int MOTION_STEP_MAX_MS = 5000;
+    private static final int MOTION_STEP_DEFAULT_MS = 1200;
 
     private NuwaRobotManager robotManager;
     private NuwaVoiceManager voiceManager;
@@ -87,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private Button poseAnalyzeButton;
     private List<DanceStep> latestDanceSteps = Collections.emptyList();
     private volatile boolean dancePlaybackStopped = false;
+    private int motionStepMs = MOTION_STEP_DEFAULT_MS;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -123,6 +129,10 @@ public class MainActivity extends AppCompatActivity {
         Button testMotionsButton = findViewById(R.id.testMotionsButton);
         Button stopButton = findViewById(R.id.stopButton);
         Button cameraTestButton = findViewById(R.id.cameraTestButton);
+        Button resetButton = findViewById(R.id.resetButton);
+        Button testRobotButton = findViewById(R.id.testRobotButton);
+        SeekBar stepSeekBar = findViewById(R.id.stepSeekBar);
+        TextView stepLabel = findViewById(R.id.stepLabel);
 
         speakButton.setOnClickListener(v -> speak());
         poseAnalyzeButton.setOnClickListener(v -> printPoseAnalyzerResults());
@@ -131,6 +141,22 @@ public class MainActivity extends AppCompatActivity {
         testMotionsButton.setOnClickListener(v -> testBuiltInMotions());
         stopButton.setOnClickListener(v -> stopMotion());
         cameraTestButton.setOnClickListener(v -> startActivity(new Intent(this, CameraTestActivity.class)));
+        resetButton.setOnClickListener(v -> statusText.setText(getString(R.string.kebbi_ready)));
+        testRobotButton.setOnClickListener(v -> testRobotConnection());
+        stepSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                motionStepMs = progress;
+                stepLabel.setText("動作間隔: " + progress + "ms");
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        stepSeekBar.setProgress(MOTION_STEP_DEFAULT_MS);
     }
 
     /**
@@ -632,7 +658,7 @@ public class MainActivity extends AppCompatActivity {
 
                 // Step3：等待動作完成
                 try {
-                    Thread.sleep(MOTION_STEP_MS);
+                    Thread.sleep(motionStepMs);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -671,11 +697,16 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("選擇姿勢動作")
                 .setItems(motionArray, (dialog, which) -> {
                     String motionName = motionArray[which];
-                    robotManager.motionPlay(motionName, false);
                     String event = MotionPoseMap.eventForMotion(motions, motionName);
-                    statusText.setText("Playing: " + motionName
-                            + "\n對應事件: " + event
-                            + "\n(" + (which + 1) + "/" + motions.size() + ")");
+                    try {
+                        robotManager.motionPlay(motionName, false);
+                        statusText.setText("Playing: " + motionName
+                                + "\n對應事件: " + event
+                                + "\n(" + (which + 1) + "/" + motions.size() + ")");
+                    } catch (Exception e) {
+                        statusText.setText("Motion play failed: " + e.getMessage()
+                                + "\n(" + (which + 1) + "/" + motions.size() + ")");
+                    }
                 })
                 .setNegativeButton("取消", null)
                 .show();
@@ -697,8 +728,12 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String motionName = motions.get(0);
-        robotManager.motionPlay(motionName, false);
-        statusText.setText("Playing: " + motionName);
+        try {
+            robotManager.motionPlay(motionName, false);
+            statusText.setText("Playing: " + motionName);
+        } catch (Exception e) {
+            statusText.setText("Motion play failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -733,11 +768,17 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> statusText.setText(
                         "Motion test " + stepNumber + " / " + testCount
                                 + "\nPlaying: " + motionName));
-                robotManager.motionPlay(motionName, false);
+                try {
+                    robotManager.motionPlay(motionName, false);
+                } catch (Exception e) {
+                    runOnUiThread(() -> statusText.setText(
+                            "Motion play failed at step " + stepNumber + ": " + e.getMessage()));
+                    break;
+                }
 
                 // Step3：等待動作完成
                 try {
-                    Thread.sleep(MOTION_STEP_MS);
+                    Thread.sleep(motionStepMs);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -763,6 +804,29 @@ public class MainActivity extends AppCompatActivity {
             voiceManager.stopTTS();
         }
         statusText.setText("Stopped");
+    }
+
+    /**
+     * 測試機器人連線：嘗試播放第一個可用的 motion，
+     * 並在 statusText 中顯示成功或失敗的訊息。
+     */
+    private void testRobotConnection() {
+        if (robotManager == null || !robotManager.isInit()) {
+            statusText.setText("Nuwa robot SDK is not ready");
+            return;
+        }
+        List<String> motions = robotManager.getMotionList();
+        if (motions == null || motions.isEmpty()) {
+            statusText.setText("No motion found on this Kebbi");
+            return;
+        }
+        String motionName = motions.get(0);
+        try {
+            robotManager.motionPlay(motionName, false);
+            statusText.setText("Robot test OK\nPlaying: " + motionName);
+        } catch (Exception e) {
+            statusText.setText("Robot test failed: " + e.getMessage());
+        }
     }
 
     @Override

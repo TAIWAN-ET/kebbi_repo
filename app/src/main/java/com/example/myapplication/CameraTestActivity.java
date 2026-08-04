@@ -25,11 +25,15 @@ import androidx.core.content.ContextCompat;
 
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark;
 import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.vision.core.RunningMode;
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker;
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -213,8 +217,14 @@ public class CameraTestActivity extends AppCompatActivity {
                         long idx = frameIndex.incrementAndGet();
                         try {
                             MPImage image = new BitmapImageBuilder(bmp).build();
-                            poseLandmarker.detectForVideo(image, idx * FRAME_INTERVAL_MS);
+                            PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, idx * FRAME_INTERVAL_MS);
                             detectedFrames.incrementAndGet();
+                            if (!result.landmarks().isEmpty()) {
+                                List<NormalizedLandmark> raw = result.landmarks().get(0);
+                                PoseFrame frame = toPoseFrame(idx * FRAME_INTERVAL_MS, raw);
+                                PoseFeature feature = PoseAnalyzer.analyzeFrame(frame);
+                                Log.i(TAG, feature.describe());
+                            }
                         } catch (Exception ignored) {
                             // 煙霧測試：單幀錯誤不中斷迴圈
                         }
@@ -234,6 +244,29 @@ public class CameraTestActivity extends AppCompatActivity {
                 cameraHandler.postDelayed(this, FRAME_INTERVAL_MS);
             }
         }, FRAME_INTERVAL_MS);
+    }
+
+    /**
+     * 把 MediaPipe 的 NormalizedLandmark 列表轉成專案內部的 PoseFrame。
+     *
+     * @param timeMs 影片時間戳記（毫秒）
+     * @param raw    MediaPipe 偵測到的 NormalizedLandmark 列表
+     * @return 轉換後的 PoseFrame
+     */
+    private PoseFrame toPoseFrame(long timeMs, List<NormalizedLandmark> raw) {
+        List<Landmark> landmarks = new ArrayList<>();
+        for (int id = 0; id < PoseLandmark.COUNT; id++) {
+            if (id < raw.size()) {
+                NormalizedLandmark lm = raw.get(id);
+                landmarks.add(new Landmark(
+                        lm.x(), lm.y(), lm.z(),
+                        lm.visibility().orElse(0.0f),
+                        lm.presence().orElse(0.0f)));
+            } else {
+                landmarks.add(new Landmark(0f, 0f, 0f, 0f, 0f));
+            }
+        }
+        return new PoseFrame((int) (timeMs / FRAME_INTERVAL_MS), timeMs, landmarks);
     }
 
     @Override
