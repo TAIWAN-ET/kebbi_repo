@@ -280,3 +280,44 @@ adb pull /sdcard/Android/data/com.example.myapplication/files/dance_pose_landmar
 - `kebbi_dance_project_current_status.txt` → 對應本文件 二、三。
 - `kebbi_dance_project_code_notes.txt` → 對應本文件 二（變數/函式說明、實測結果）。
 - `nuwa_air_h202_apk_flow.txt` → 對應本文件 九（APK 建置/安裝流程）。
+
+---
+
+## 十一、開發紀錄
+
+### 2026-08-04 註解加註工作
+
+**目標**：依照規範逐一為 Java 檔案加註解，建立程式文件化。
+
+**規範**：
+1. 每個 class 前加入 JavaDoc（用途、誰會呼叫、不負責什麼）
+2. 每個 public method 前加入 JavaDoc（功能、參數、回傳值、什麼時候呼叫）
+3. 每個複雜邏輯區塊加入 `// Step1 // Step2` 註解
+4. 不刪除任何原本程式
+5. 不重構
+6. 每完成一個檔案就停止，等待確認
+
+**完成狀態**：
+
+| 檔案 | 狀態 |
+|---|---|
+| MotionSource.java | ✅ 完成 |
+| PoseLandmark.java | ✅ 完成 |
+| Landmark.java | ✅ 完成 |
+| PoseFrame.java | ✅ 完成 |
+| MotionSequence.java | ✅ 完成 |
+| PoseFeature.java | ✅ 完成 |
+| PoseMath.java | ✅ 完成 |
+| PoseIO.java | ✅ 完成 |
+| PoseAnalyzer.java | ✅ 完成 |
+| PosePipeline.java | ✅ 完成 |
+| MotionPoseMap.java | ✅ 完成 |
+| MainActivity.java | ✅ 完成 |
+| CameraTestActivity.java | ✅ 完成 |
+
+**Git 安全點**：
+- Commit: `5da1a00` - "safety point: before PoseMath verification work"
+
+**產出文件**：
+- `DEVELOPMENT_LOG.md` — 開發紀錄
+- `FUNCTION_REFERENCE.md` — 函式參考手冊（含 Call Graph）

@@ -40,8 +40,17 @@ import java.util.concurrent.atomic.AtomicLong;
  *   ✅ Log / UI 持續輸出 frame / timestamp
  * 不做任何姿態辨識或機器人控制。
  *
+ * <p>用途：驗證 Camera + MediaPipe 串流管道是否通順，不做任何姿態辨識或機器人控制。
  * 本檔案與 activity_camera_test.xml 為「可整組刪除」的測試程式，
  * 不影響核心 Data Layer（Landmark / PoseFrame / MotionSequence / PoseIO / PosePipeline）。
+ *
+ * <p>誰會呼叫它：
+ * Android 系統在使用者點擊 Camera Test 按鈕時啟動此 Activity。
+ * 使用者手動觸發。
+ *
+ * <p>不負責什麼：
+ * 不做姿態辨識結果的分析，不控制機器人，不處理 CSV/JSON 序列化，
+ * 不做 round-trip 驗驗證。純粹是煙霧測試。
  */
 public class CameraTestActivity extends AppCompatActivity {
     private static final String TAG = "CameraTest";

@@ -14,25 +14,51 @@ import java.util.TreeMap;
 
 /**
  * PoseFrame 資料的輸入/輸出工具，集中所有 CSV 與 JSON 的讀寫。
+ *
+ * <p>用途：提供 CSV 和 JSON 與 {@link MotionSequence} 之間的雙向轉換。
  * MainActivity 永遠只呼叫 PoseIO，不自己處理序列化細節。
  *
- * 使用 Android 內建套件以外的「純 Java」實作（自寫極簡 JSON 解析），
+ * <p>誰會呼叫它：
+ * {@link PosePipeline#verify(java.io.File, java.io.File)} 做 round-trip 驗證時呼叫，
+ * {@link MainActivity#analyzeDanceVideo(android.net.Uri)} 寫入 CSV 時呼叫，
+ * {@link MainActivity#analyzeBuiltInClip()} 讀取 CSV 時呼叫。
+ *
+ * <p>不負責什麼：
+ * 不計算任何角度或距離，不處理 Android UI 或 MediaPipe 執行期，
+ * 不認識任何機器人 SDK 或 API。
+ *
+ * <p>使用 Android 內建套件以外的「純 Java」實作（自寫極簡 JSON 解析），
  * 因此本類別不依賴 Android，PC Java / 單元測試也能直接重用。
  *
- * 提供的轉換（構成 P0-A round-trip）：
- *   readCsv(File)   : CSV  -> MotionSequence
- *   writeCsv(File)  : MotionSequence -> CSV
- *   readJson(File)  : JSON -> MotionSequence
- *   writeJson(File) : MotionSequence -> JSON
+ * <p>提供的轉換（構成 P0-A round-trip）：
+ * <ul>
+ *   <li>readCsv(File)   : CSV  -> MotionSequence</li>
+ *   <li>writeCsv(File)  : MotionSequence -> CSV</li>
+ *   <li>readJson(File)  : JSON -> MotionSequence</li>
+ *   <li>writeJson(File) : MotionSequence -> JSON</li>
+ * </ul>
  */
 public final class PoseIO {
 
     private PoseIO() {
     }
 
+    /**
+     * 將 MotionSequence 寫入 CSV 檔案。
+     *
+     * <p>CSV 格式：
+     * time_ms,pose_index,landmark_index,x,y,z,visibility,presence
+     *
+     * @param file     目標 CSV 檔案
+     * @param sequence 要寫入的動作序列
+     * @throws IOException 檔案寫入失敗時拋出
+     */
     public static void writeCsv(File file, MotionSequence sequence) throws IOException {
         try (FileWriter writer = new FileWriter(file)) {
+            // Step1：寫入 CSV 標頭
             writer.write("time_ms,pose_index,landmark_index,x,y,z,visibility,presence\n");
+
+            // Step2：逐幀逐 landmark 寫入資料
             for (PoseFrame frame : sequence.frames) {
                 for (int li = 0; li < frame.landmarks.size(); li++) {
                     Landmark lm = frame.landmarks.get(li);
@@ -44,14 +70,20 @@ public final class PoseIO {
     }
 
     /**
-     * 讀取 CSV 並重組成 MotionSequence。
-     * 使用 TreeMap 依 landmarkIndex 定位，即使 CSV 順序錯亂（如 0,2,1,3）也能正確排回，
+     * 從 CSV 檔案讀取並重組成 MotionSequence。
+     *
+     * <p>使用 TreeMap 依 landmarkIndex 定位，即使 CSV 順序錯亂（如 0,2,1,3）也能正確排回，
      * 不會產生錯位的 Landmark。
+     *
+     * @param file CSV 檔案
+     * @return 解析後的 MotionSequence；若檔案為空，回傳空的 MotionSequence
+     * @throws IOException 檔案讀取失敗時拋出
      */
     public static MotionSequence readCsv(File file) throws IOException {
         List<PoseFrame> frames = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line = reader.readLine(); // 跳過 header
+            // Step1：跳過 CSV 標頭
+            String line = reader.readLine();
             if (line == null) {
                 return new MotionSequence(MotionSource.VIDEO, 0f, frames);
             }
@@ -59,6 +91,7 @@ public final class PoseIO {
             long currentTimestamp = Long.MIN_VALUE;
             TreeMap<Integer, Landmark> current = null;
 
+            // Step2：逐行讀取並按時間戳記分組
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) {
                     continue;
@@ -76,6 +109,7 @@ public final class PoseIO {
                 float visibility = Float.parseFloat(parts[6]);
                 float presence = Float.parseFloat(parts[7]);
 
+                // Step3：若時間戳記改變，將上一幀加入列表並開始新的一幀
                 if (timeMs != currentTimestamp) {
                     if (current != null && currentTimestamp != Long.MIN_VALUE) {
                         frames.add(new PoseFrame(frames.size(), currentTimestamp,
@@ -84,10 +118,14 @@ public final class PoseIO {
                     currentTimestamp = timeMs;
                     current = new TreeMap<>();
                 }
+
+                // Step4：將 landmark 放入 TreeMap，依 landmarkIndex 自動排序
                 if (current != null) {
                     current.put(landmarkIndex, new Landmark(x, y, z, visibility, presence));
                 }
             }
+
+            // Step5：處理最後一幀
             if (current != null && currentTimestamp != Long.MIN_VALUE) {
                 frames.add(new PoseFrame(frames.size(), currentTimestamp,
                         new ArrayList<>(current.values())));
@@ -96,23 +134,42 @@ public final class PoseIO {
         return new MotionSequence(MotionSource.VIDEO, 0f, frames);
     }
 
+    /**
+     * 將 MotionSequence 寫入 JSON 檔案。
+     *
+     * @param file     目標 JSON 檔案
+     * @param sequence 要寫入的動作序列
+     * @throws IOException 檔案寫入失敗時拋出
+     */
     public static void writeJson(File file, MotionSequence sequence) throws IOException {
         try (FileWriter writer = new FileWriter(file)) {
             writer.write(toJsonString(sequence));
         }
     }
 
+    /**
+     * 將 MotionSequence 轉換為 JSON 字串。
+     *
+     * <p>使用自寫極簡 JSON 序列化，不依賴 Android org.json 或 Gson。
+     *
+     * @param sequence 要轉換的動作序列
+     * @return JSON 格式的字串
+     */
     public static String toJsonString(MotionSequence sequence) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append("  \"source\": ").append(quote(sequence.source == null ? "" : sequence.source.name())).append(",\n");
         sb.append("  \"fps\": ").append(sequence.fps).append(",\n");
         sb.append("  \"frames\": [\n");
+
+        // Step1：逐幀序列化
         for (int i = 0; i < sequence.frames.size(); i++) {
             PoseFrame frame = sequence.frames.get(i);
             sb.append("    {\"frameIndex\": ").append(frame.frameIndex)
                     .append(", \"timestampMs\": ").append(frame.timestampMs)
                     .append(", \"landmarks\": [");
+
+            // Step2：逐 landmark 序列化
             for (int j = 0; j < frame.landmarks.size(); j++) {
                 Landmark lm = frame.landmarks.get(j);
                 sb.append("{\"x\":").append(lm.x)
@@ -131,11 +188,19 @@ public final class PoseIO {
             }
             sb.append("\n");
         }
+
         sb.append("  ]\n");
         sb.append("}");
         return sb.toString();
     }
 
+    /**
+     * 從 JSON 檔案讀取並解析成 MotionSequence。
+     *
+     * @param file JSON 檔案
+     * @return 解析後的 MotionSequence
+     * @throws IOException 檔案讀取失敗時拋出
+     */
     public static MotionSequence readJson(File file) throws IOException {
         StringBuilder sb = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
@@ -147,10 +212,20 @@ public final class PoseIO {
         return fromJsonString(sb.toString());
     }
 
+    /**
+     * 將 JSON 字串解析成 MotionSequence。
+     *
+     * <p>使用自寫極簡 JSON 解析器，不依賴 Android org.json 或 Gson。
+     * 若 source 欄位無法對應到已知的 MotionSource，回退為 VIDEO。
+     *
+     * @param json JSON 字串
+     * @return 解析後的 MotionSequence
+     */
     @SuppressWarnings("unchecked")
     public static MotionSequence fromJsonString(String json) {
         Map<String, Object> root = (Map<String, Object>) new JsonParser(json).parse();
 
+        // Step1：解析 source 欄位（回退為 VIDEO）
         MotionSource source = MotionSource.VIDEO;
         Object sourceObj = root.get("source");
         if (sourceObj instanceof String) {
@@ -161,8 +236,10 @@ public final class PoseIO {
             }
         }
 
+        // Step2：解析 fps
         double fps = asDouble(root.get("fps"));
 
+        // Step3：逐幀解析 landmarks
         List<PoseFrame> frames = new ArrayList<>();
         Object framesObj = root.get("frames");
         if (framesObj instanceof List) {
@@ -196,6 +273,12 @@ public final class PoseIO {
         return new MotionSequence(source, (float) fps, frames);
     }
 
+    /**
+     * 將 Object 安全轉換為 double。
+     *
+     * @param value 任意 Object（Number 或其餘類型）
+     * @return 若是 Number 回傳 double 值，否則回傳 0.0
+     */
     private static double asDouble(Object value) {
         if (value instanceof Number) {
             return ((Number) value).doubleValue();
@@ -203,6 +286,12 @@ public final class PoseIO {
         return 0.0;
     }
 
+    /**
+     * 將字串加上 JSON 格式的引號並處理轉义字元。
+     *
+     * @param text 原始字串
+     * @return 加引號後的 JSON 字串
+     */
     private static String quote(String text) {
         StringBuilder sb = new StringBuilder("\"");
         for (int i = 0; i < text.length(); i++) {
@@ -218,7 +307,8 @@ public final class PoseIO {
 
     /**
      * 極簡 JSON 解析器，只支援本專案用到的 object / array / string / number / bool / null。
-     * 純 Java 實作，用來讓 PoseIO 在沒有 org.json / Gson 的環境下也能運作。
+     *
+     * <p>純 Java 實作，用來讓 PoseIO 在沒有 org.json / Gson 的環境下也能運作。
      */
     private static final class JsonParser {
         private final String text;
@@ -228,6 +318,11 @@ public final class PoseIO {
             this.text = text;
         }
 
+        /**
+         * 解析整個 JSON 字串。
+         *
+         * @return 解析後的 Java 物件（Map、List、String、Number、Boolean 或 null）
+         */
         Object parse() {
             skipWhitespace();
             return parseValue();

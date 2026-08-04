@@ -6,4 +6,5 @@
     <string name="test_motions_button">Test Built-in Motions</string>
     <string name="stop_button">Stop Motion</string>
     <string name="pick_video_button">分析影片(前10秒)</string>
+    <string name="pose_analyze_button">顯示 PoseAnalyzer 結果</string>
 </resources>

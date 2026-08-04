@@ -25,6 +25,16 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="@string/speak_button"
+        app:layout_constraintBottom_toTopOf="@id/poseAnalyzeButton"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+<Button
+        android:id="@+id/poseAnalyzeButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/pose_analyze_button"
         app:layout_constraintBottom_toTopOf="@id/pickVideoButton"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
