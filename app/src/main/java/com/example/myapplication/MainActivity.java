@@ -219,7 +219,12 @@ public class MainActivity extends AppCompatActivity {
                 long durationMs = durationText == null ? 0L : Long.parseLong(durationText);
                 long limitMs = Math.min(durationMs, CLIP_ANALYZE_MS);
 
-                // Step3：逐幀解析影片
+                // Step3：準備 CSV 寫入器
+                File csvFile = new File(getExternalFilesDir(null), POSE_ANALYZE_CSV);
+                FileWriter landmarkWriter = new FileWriter(csvFile, false);
+                landmarkWriter.write("time_ms,pose_index,landmark_index,x,y,z,visibility,presence\n");
+
+                // Step4：逐幀解析影片
                 for (long timeMs = 0; timeMs <= limitMs; timeMs += FRAME_INTERVAL_MS) {
                     Bitmap frame = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST);
                     if (frame == null) {
@@ -227,20 +232,23 @@ public class MainActivity extends AppCompatActivity {
                     }
                     sampledFrames++;
 
-                    // Step4：將 Bitmap 轉為 MediaPipe MPImage
+                    // Step5：將 Bitmap 轉為 MediaPipe MPImage
                     MPImage image = new BitmapImageBuilder(frame).build();
 
-                    // Step5：用 PoseLandmarker 偵測姿態
+                    // Step6：用 PoseLandmarker 偵測姿態
                     PoseLandmarkerResult result = poseLandmarker.detectForVideo(image, timeMs);
                     if (!result.landmarks().isEmpty()) {
                         poseFrames++;
 
-                        // Step6：轉換為 PoseFrame 並計算特徵
+                        // Step7：轉換為 PoseFrame 並計算特徵
                         List<NormalizedLandmark> raw = result.landmarks().get(0);
                         PoseFrame pf = toPoseFrame(timeMs, raw);
                         PoseFeature f = PoseAnalyzer.analyzeFrame(pf);
 
-                        // Step7：累計角度統計
+                        // Step8：寫入 CSV
+                        writeLandmarks(landmarkWriter, timeMs, result.landmarks());
+
+                        // Step9：累計角度統計
                         sumLeftElbow += f.leftElbowAngle;
                         sumRightElbow += f.rightElbowAngle;
                         sumShoulder += f.shoulderSlope;
@@ -259,7 +267,12 @@ public class MainActivity extends AppCompatActivity {
                     frame.recycle();
                 }
 
-                // Step9：組合分析報告
+                // Step9：關閉 CSV 寫入器
+                try {
+                    landmarkWriter.close();
+                } catch (Exception ignored) {
+                }
+
                 int fp = poseFrames;
                 String summary = "分析完成（前 " + limitMs + "ms）\n"
                         + "抽幀=" + sampledFrames + " 偵測到=" + poseFrames + "\n"
@@ -271,6 +284,7 @@ public class MainActivity extends AppCompatActivity {
                             + "左手舉幀=" + leftHandUpCount + "/" + fp
                             + " 右手舉幀=" + rightHandUpCount + "/" + fp + "\n"
                             : "")
+                        + "CSV 已儲存：" + POSE_ANALYZE_CSV + "\n"
                         + "---- 每幀 ----" + "\n" + frameLog;
 
                 // Step10：寫入日誌檔案並更新 UI
