@@ -1,4 +1,9 @@
-package com.example.myapplication;
+package com.example.myapplication.model;
+
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.camera.CameraTestActivity;
+import com.example.myapplication.io.PoseIO;
+import java.io.File;
 
 /**
  * 動作序列的來源。

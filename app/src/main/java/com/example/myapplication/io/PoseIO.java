@@ -1,4 +1,10 @@
-package com.example.myapplication;
+package com.example.myapplication.io;
+
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.model.Landmark;
+import com.example.myapplication.model.MotionSequence;
+import com.example.myapplication.model.MotionSource;
+import com.example.myapplication.model.PoseFrame;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -308,8 +314,9 @@ public final class PoseIO {
      * 極簡 JSON 解析器，只支援本專案用到的 object / array / string / number / bool / null。
      *
      * <p>純 Java 實作，用來讓 PoseIO 在沒有 org.json / Gson 的環境下也能運作。
+     * package-private：同 package 的 {@link DanceScriptIO} 共用同一個解析器。
      */
-    private static final class JsonParser {
+    static final class JsonParser {
         private final String text;
         private int pos = 0;
 

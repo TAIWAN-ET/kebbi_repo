@@ -1,12 +1,14 @@
 <resources>
     <string name="app_name">Kebbi Dance</string>
     <string name="kebbi_ready">Kebbi control ready</string>
-    <string name="speak_button">Speak</string>
-    <string name="motion_button">選擇姿勢動作</string>
-    <string name="test_motions_button">Test Built-in Motions</string>
-    <string name="stop_button">Stop Motion</string>
     <string name="pick_video_button">分析影片(前10秒)</string>
-    <string name="pose_analyze_button">顯示 PoseAnalyzer 結果</string>
-    <string name="reset_button">Clear / Reset</string>
-    <string name="test_robot_button">Test Robot Connection</string>
+    <string name="play_dance_button">Play Dance</string>
+    <string name="stop_button">Stop Motion</string>
+    <string name="home_button">Home (歸位)</string>
+    <string name="head_limit_button">Test Head Limits</string>
+    <string name="hand_limit_button">Test Hand Limits</string>
+    <string name="mapper_test_button">Test RobotMapper</string>
+    <string name="play_script_button">播放腳本 (dance_script.json)</string>
+    <string name="remote_on_button">開啟遠端接收 (Wi-Fi)</string>
+    <string name="remote_off_button">關閉遠端接收</string>
 </resources>

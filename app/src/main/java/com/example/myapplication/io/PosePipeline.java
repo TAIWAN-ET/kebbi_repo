@@ -1,4 +1,11 @@
-package com.example.myapplication;
+package com.example.myapplication.io;
+
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.math.PoseMath;
+import com.example.myapplication.model.Landmark;
+import com.example.myapplication.model.MotionSequence;
+import com.example.myapplication.model.PoseFrame;
+import com.example.myapplication.model.PoseLandmark;
 
 import java.io.File;
 import java.io.IOException;

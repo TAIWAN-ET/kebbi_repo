@@ -1,4 +1,10 @@
-package com.example.myapplication;
+package com.example.myapplication.math;
+
+import com.example.myapplication.analysis.PoseAnalyzer;
+import com.example.myapplication.io.PoseIO;
+import com.example.myapplication.model.MotionSequence;
+import com.example.myapplication.model.PoseFeature;
+import com.example.myapplication.model.PoseFrame;
 
 import java.io.File;
 
@@ -6,8 +12,8 @@ import java.io.File;
  * PoseMath / PoseAnalyzer 的純 Java 驗證工具。不依賴 Android、不接 Robot、不開 Camera。
  *
  * 用法（PC 上直接 javac + java）：
- *   javac -d out app/src/main/java/com/example/myapplication/*.java
- *   java  -cp out com.example.myapplication.PoseMathVerify <csv_path> [frame_index]
+ *   javac -d out $(find app/src/main/java/com/example/myapplication -name '*.java')
+ *   java  -cp out com.example.myapplication.math.PoseMathVerify <csv_path> [frame_index]
  *
  * 輸出例如：
  *   Frame 15

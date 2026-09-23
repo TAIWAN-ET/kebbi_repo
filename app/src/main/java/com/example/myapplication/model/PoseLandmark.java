@@ -1,5 +1,8 @@
-package com.example.myapplication;
+package com.example.myapplication.model;
 
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.analysis.PoseAnalyzer;
+import com.example.myapplication.math.PoseMath;
 /**
  * MediaPipe Pose Landmarker 的 33 個 landmark 索引常數，消滅魔術數字。
  *

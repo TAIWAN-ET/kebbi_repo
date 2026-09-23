@@ -1,4 +1,9 @@
-package com.example.myapplication;
+package com.example.myapplication.math;
+
+import com.example.myapplication.analysis.PoseAnalyzer;
+import com.example.myapplication.io.PosePipeline;
+import com.example.myapplication.model.Landmark;
+import com.example.myapplication.model.PoseFrame;
 
 /**
  * 純 Java 的姿態數學工具。

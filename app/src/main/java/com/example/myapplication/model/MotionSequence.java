@@ -1,5 +1,8 @@
-package com.example.myapplication;
+package com.example.myapplication.model;
 
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.io.PoseIO;
+import com.example.myapplication.io.PosePipeline;
 import java.util.List;
 
 /**

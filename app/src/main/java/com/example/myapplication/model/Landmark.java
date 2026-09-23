@@ -1,4 +1,8 @@
-package com.example.myapplication;
+package com.example.myapplication.model;
+
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.io.PoseIO;
+import com.example.myapplication.math.PoseMath;
 
 /**
  * 單一人體關節點。
