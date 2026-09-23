@@ -2,7 +2,35 @@
 
 > 專案：Kebbi 看影片學跳舞專題
 > 專案位置：`C:\kebbi`
-> 更新時間：2026-08-11
+> 更新時間：2026-09-24
+
+---
+
+## 2026-09-24（馬達軸向/方向/範圍依官方資料修正；移除 web_sim）
+
+### 目標
+用 NUWA 官方資料解掉「馬達軸向未確認」與「極限值是猜的」兩個 TODO。
+
+### 依據
+- NuwaUnity SDK「Motor angle range table」＝ NUWA 網頁模擬器 hardware.xml 編碼器範圍（僅 NECK_Z 文件 ±40、編碼器 ±31，取 ±31）。
+- NUWA 模擬器 robot.xml：neck_z 轉軸 (0 0 1)＝左右轉，neck_y (0 1 0)＝點頭。
+- 220 支官方動作：`666_TA_LookLR` neck_z 先 +21（左）；`666_TA_LookDnU` neck_y 先 +9（低頭）；`666_RE_HiL` 左肩 -131、左肘 -62（抬手、彎肘都是負值）。
+
+### 這次完成
+- `RobotMotor`：`NECK_YAW = NECK_Z`、`NECK_PITCH = NECK_Y`（原本相反）；補上各馬達方向與範圍註解。
+- `RobotMapper`：範圍改為官方不對稱範圍（頭 ±31/±20、肩 -200~70、肘 -80~0）；頭 pitch、肩、肘改為反號；`ARM_SCALE 0.45→1.0`、`ELBOW_SCALE 0.45→0.6`（依「機器人範圍 / 人體範圍」原則重算）；`maxDegFor` 改為 `minDegFor` + `maxDegFor`。
+  - 舊版送出的指令在真機上：頭左右轉會變成點頭、抬手會往後擺、彎肘的正值會被夾成 0（手肘永遠不彎）。
+- `DanceScriptPlayer.sanitize()`：改用不對稱範圍夾位。
+- `RobotController.testHeadTurningLimits()`：yaw 改測 NECK_Z、pitch 改測 NECK_Y。
+- 移除 `web_sim/`（不太可用）。舊版仍在 git 歷史（commit fd15977）可找回。
+
+### 驗證
+- 純 Java 類別（make_dance.py 同一組）javac 編譯通過；`buildSamples()` 映射：both_hands_up → 肩 -140、肘 -33；head_right_rh_up → NECK_Z 31；pitch_down_lh_up → NECK_Y 20。
+- `RobotController` 需要 Android SDK，這台沒有，未編譯（只對調 NECK_Y / NECK_Z 兩個常數與標籤）；請在 Android Studio 跑一次 `assembleDebug`。
+
+### 備註
+- 仍建議實機按一次 Test Head Limits，確認 NECK_Z 是左右轉。
+- 目前人體「抬手角」（任何方向）對應機器人 SHOULDER_Y（往前上舉）；側舉若要更像，可改用 SHOULDER_X（側向外展 -3~100）。
 
 ---
 

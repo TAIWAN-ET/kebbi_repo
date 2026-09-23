@@ -51,21 +51,22 @@ public class RobotMapper {
     private static final float HEAD_YAW_SCALE = 1.35f;
     /** 頭部上下點倍率。 */
     private static final float HEAD_PITCH_SCALE = 1.4f;
-    /** 手臂抬升倍率：人體 20~170 度（約 150 度行程）壓進機器人 60 度。 */
-    private static final float ARM_SCALE = 0.45f;
-    /** 手肘彎曲倍率：人體 175~40 度（約 135 度行程）壓進機器人 60 度。 */
-    private static final float ELBOW_SCALE = 0.45f;
+    /** 手臂抬升倍率：人體 20~170 度（約 150 度行程）對應機器人上舉 0~-150 度（可舉到 -200）。 */
+    private static final float ARM_SCALE = 1.0f;
+    /** 手肘彎曲倍率：人體 175~40 度（約 135 度行程）壓進機器人 0~-80 度。 */
+    private static final float ELBOW_SCALE = 0.6f;
 
     // ---------------------------------------------------------------
-    // 各馬達容許的角度範圍
-    // TODO 實機確認：修好 ctlMotor 速度單位後重跑 Test Head Limits / Test Hand Limits，
-    //      拿真實量到的 min/max 回填這四個常數。目前是保守猜測值。
+    // 各馬達容許的角度範圍（度）
+    // 來源：NuwaUnity SDK「Motor angle range table」，與 NUWA 模擬器 hardware.xml 的
+    // 編碼器範圍一致（NECK_Z 文件寫 ±40，編碼器只有 ±31，取 ±31）。
+    // 範圍不對稱：抬手、彎肘都是負值（官方動作 666_RE_HiL：左肩 -131、左肘 -62）。
     // ---------------------------------------------------------------
 
-    private static final float NECK_YAW_MAX_DEG = 90f;
-    private static final float NECK_PITCH_MAX_DEG = 30f;
-    private static final float SHOULDER_MAX_DEG = 60f;
-    private static final float ELBOW_MAX_DEG = 60f;
+    private static final float NECK_YAW_MIN_DEG = -31f, NECK_YAW_MAX_DEG = 31f;       // NECK_Z
+    private static final float NECK_PITCH_MIN_DEG = -20f, NECK_PITCH_MAX_DEG = 20f;   // NECK_Y
+    private static final float SHOULDER_MIN_DEG = -200f, SHOULDER_MAX_DEG = 70f;
+    private static final float ELBOW_MIN_DEG = -80f, ELBOW_MAX_DEG = 0f;
 
     /**
      * 每個指令的預設馬達速度（度/秒）。
@@ -96,46 +97,65 @@ public class RobotMapper {
         List<RobotCommand> commands = new ArrayList<>();
 
         // Step1：頭部轉動（headYaw / headPitch 的零點本來就是「正面平視」，不用扣休息值）
+        // headYaw 正＝往畫面右轉＝人往自己左邊轉 → NECK_Z 正（機器人也往自己左邊轉，和手臂一樣不鏡像）
         commands.add(command(
                 RobotMotor.NECK_YAW,
-                feature.headYaw * HEAD_YAW_SCALE,
-                NECK_YAW_MAX_DEG));
+                feature.headYaw * HEAD_YAW_SCALE));
+        // headPitch 正＝抬頭；NECK_Y 正＝低頭，所以反號
         commands.add(command(
                 RobotMotor.NECK_PITCH,
-                feature.headPitch * HEAD_PITCH_SCALE,
-                NECK_PITCH_MAX_DEG));
+                -feature.headPitch * HEAD_PITCH_SCALE));
 
-        // Step2：肩膀（手臂抬升）— 扣掉自然下垂的休息角，抬得越高值越大
+        // Step2：肩膀（手臂抬升）— 扣掉自然下垂的休息角；機器人上舉是負值
         commands.add(command(
                 RobotMotor.LEFT_SHOULDER_Y,
-                (feature.leftArmAngle - ARM_REST_DEG) * ARM_SCALE,
-                SHOULDER_MAX_DEG));
+                -(feature.leftArmAngle - ARM_REST_DEG) * ARM_SCALE));
         commands.add(command(
                 RobotMotor.RIGHT_SHOULDER_Y,
-                (feature.rightArmAngle - ARM_REST_DEG) * ARM_SCALE,
-                SHOULDER_MAX_DEG));
+                -(feature.rightArmAngle - ARM_REST_DEG) * ARM_SCALE));
 
-        // Step3：手肘（彎曲程度）— 手臂打直是休息值，彎越多值越大
+        // Step3：手肘（彎曲程度）— 手臂打直是休息值；機器人彎肘是負值
         commands.add(command(
                 RobotMotor.LEFT_ELBOW_Y,
-                (ELBOW_REST_DEG - feature.leftElbowAngle) * ELBOW_SCALE,
-                ELBOW_MAX_DEG));
+                -(ELBOW_REST_DEG - feature.leftElbowAngle) * ELBOW_SCALE));
         commands.add(command(
                 RobotMotor.RIGHT_ELBOW_Y,
-                (ELBOW_REST_DEG - feature.rightElbowAngle) * ELBOW_SCALE,
-                ELBOW_MAX_DEG));
+                -(ELBOW_REST_DEG - feature.rightElbowAngle) * ELBOW_SCALE));
 
         return commands;
     }
 
     /**
-     * 查詢某顆馬達在映射中容許的最大絕對角度。
+     * 查詢某顆馬達容許的最小角度。
      *
      * <p>{@link DanceScriptPlayer} 在機器人端再夾一次位用：
      * 就算腳本檔被手動改壞，也不會送出超過這個範圍的角度。
      *
      * @param motorId 馬達 id
-     * @return 最大絕對角度（度）；不是 RobotMapper 會驅動的馬達時回傳 -1
+     * @return 最小角度（度）；不是 RobotMapper 會驅動的馬達時回傳 NaN
+     */
+    public static float minDegFor(int motorId) {
+        switch (motorId) {
+            case RobotMotor.NECK_YAW:
+                return NECK_YAW_MIN_DEG;
+            case RobotMotor.NECK_PITCH:
+                return NECK_PITCH_MIN_DEG;
+            case RobotMotor.LEFT_SHOULDER_Y:
+            case RobotMotor.RIGHT_SHOULDER_Y:
+                return SHOULDER_MIN_DEG;
+            case RobotMotor.LEFT_ELBOW_Y:
+            case RobotMotor.RIGHT_ELBOW_Y:
+                return ELBOW_MIN_DEG;
+            default:
+                return Float.NaN;
+        }
+    }
+
+    /**
+     * 查詢某顆馬達容許的最大角度。
+     *
+     * @param motorId 馬達 id
+     * @return 最大角度（度）；不是 RobotMapper 會驅動的馬達時回傳 NaN
      */
     public static float maxDegFor(int motorId) {
         switch (motorId) {
@@ -150,7 +170,7 @@ public class RobotMapper {
             case RobotMotor.RIGHT_ELBOW_Y:
                 return ELBOW_MAX_DEG;
             default:
-                return -1f;
+                return Float.NaN;
         }
     }
 
@@ -159,11 +179,12 @@ public class RobotMapper {
      *
      * @param motorId 馬達 id
      * @param degree  夾位前的目標角度
-     * @param maxDeg  容許的最大絕對值
-     * @return 夾位後的 RobotCommand
+     * @return 夾到該馬達範圍內的 RobotCommand
      */
-    private static RobotCommand command(int motorId, float degree, float maxDeg) {
-        return new RobotCommand(motorId, clamp(degree, maxDeg), DEFAULT_SPEED_DEG_PER_SEC);
+    private static RobotCommand command(int motorId, float degree) {
+        // + 0f：把反號產生的 -0.0 變回 0.0，腳本 / log 才不會出現 "-0.0"
+        return new RobotCommand(motorId,
+                clamp(degree, minDegFor(motorId), maxDegFor(motorId)) + 0f, DEFAULT_SPEED_DEG_PER_SEC);
     }
 
     /**
@@ -239,14 +260,15 @@ public class RobotMapper {
     }
 
     /**
-     * 將數值限制在 ±max 範圍內。
+     * 將數值限制在 [min, max] 範圍內。
      *
      * @param value 原始數值
-     * @param max   容許的最大絕對值（度）
+     * @param min   容許的最小值（度）
+     * @param max   容許的最大值（度）
      * @return 限制後的數值
      */
-    private static float clamp(float value, float max) {
-        return Math.max(-max, Math.min(max, value));
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     /**

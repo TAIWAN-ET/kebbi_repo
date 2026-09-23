@@ -243,8 +243,9 @@ public class RobotController {
     /**
      * 測試機器人頭部轉動極限（直接馬達控制）。
      *
-     * <p>用 NuwaRobotAPI 直接以 ctlMotor 逐度移動頭部 yaw（MOTOR_NECK_Y）
-     * 從 0° 每次 +5° 到 90°，再測 pitch（MOTOR_NECK_Z）到 30°。
+     * <p>用 NuwaRobotAPI 直接以 ctlMotor 逐度移動頭部 yaw（MOTOR_NECK_Z）
+     * 從 0° 每次 +5° 到 90°，再測 pitch（MOTOR_NECK_Y）到 30°。
+     * 刻意掃過官方範圍（NECK_Z ±31°、NECK_Y ±20°），用「卡住」確認實機極限。
      * 每一步讀回實際角度（getMotorPresentPositionInDegree）記錄誤差與卡住情形，
      * 最後回到 0°。若取不到 NuwaRobotAPI 實例則退回內建 head motion 測試。
      *
@@ -267,17 +268,17 @@ public class RobotController {
             StringBuilder results = new StringBuilder();
             results.append("=== Head Limits (direct motor) ===\n");
 
-            // Step1：測試頭部 yaw（左右轉）：0 -> +90，每次 +5
-            results.append("-- NECK_Y (yaw) --\n");
-            boolean stalled = sweepMotor(api, NuwaRobotAPI.MOTOR_NECK_Y,
+            // Step1：測試頭部 yaw（左右轉，NECK_Z）：0 -> +90，每次 +5
+            results.append("-- NECK_Z (yaw) --\n");
+            boolean stalled = sweepMotor(api, NuwaRobotAPI.MOTOR_NECK_Z,
                     HEAD_YAW_MAX_DEG, results, onStatus);
             if (stalled) {
                 results.append(">> 偵測到卡住（連續 3 步實際角度幾乎沒動）\n");
             }
 
-            // Step2：測試頭部 pitch（點頭）：0 -> +30，每次 +5
-            results.append("-- NECK_Z (pitch) --\n");
-            sweepMotor(api, NuwaRobotAPI.MOTOR_NECK_Z, HEAD_PITCH_MAX_DEG, results, onStatus);
+            // Step2：測試頭部 pitch（點頭，NECK_Y）：0 -> +30，每次 +5
+            results.append("-- NECK_Y (pitch) --\n");
+            sweepMotor(api, NuwaRobotAPI.MOTOR_NECK_Y, HEAD_PITCH_MAX_DEG, results, onStatus);
 
             // Step3：回到原點
             api.ctlMotor(NuwaRobotAPI.MOTOR_NECK_Y, 0f, MOTOR_SPEED_DEG_PER_SEC);

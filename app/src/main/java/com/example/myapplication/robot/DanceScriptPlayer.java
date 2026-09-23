@@ -224,11 +224,12 @@ public class DanceScriptPlayer {
      * @return 夾位後的新指令；不是 RobotMapper 驅動的馬達回傳 null
      */
     static RobotCommand sanitize(RobotCommand cmd) {
+        float minDeg = RobotMapper.minDegFor(cmd.motorId);
         float maxDeg = RobotMapper.maxDegFor(cmd.motorId);
-        if (maxDeg < 0f || Float.isNaN(cmd.degree) || Float.isNaN(cmd.speedDegPerSec)) {
+        if (Float.isNaN(maxDeg) || Float.isNaN(cmd.degree) || Float.isNaN(cmd.speedDegPerSec)) {
             return null;
         }
-        float degree = Math.max(-maxDeg, Math.min(maxDeg, cmd.degree));
+        float degree = Math.max(minDeg, Math.min(maxDeg, cmd.degree));
         float speed = Math.max(MIN_SPEED_DEG_PER_SEC,
                 Math.min(DanceScriptBuilder.MAX_SPEED_DEG_PER_SEC, cmd.speedDegPerSec));
         return new RobotCommand(cmd.motorId, degree, speed);

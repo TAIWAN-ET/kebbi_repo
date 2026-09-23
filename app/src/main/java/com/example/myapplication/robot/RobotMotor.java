@@ -30,21 +30,27 @@ public final class RobotMotor {
     public static final int NECK_Y = 1;
     /** 頸部 Z 軸馬達（NuwaRobotAPI.MOTOR_NECK_Z）。 */
     public static final int NECK_Z = 2;
-    /** 右肩 Z（外展）。 */
+    // 方向與範圍（度，SDK 角度表 / robot.xml / 官方動作檔）：
+    //   SHOULDER_Y -200~70，負＝往前上舉（-180 舉過頭）
+    //   SHOULDER_X -3~100，側向外展
+    //   SHOULDER_Z -85~5，繞垂直軸水平擺，負＝往胸前收
+    //   ELBOW_Y    -80~0，負＝彎肘
+
+    /** 右肩 Z（水平前後擺）。 */
     public static final int RIGHT_SHOULDER_Z = 3;
-    /** 右肩 Y（舉/放）。 */
+    /** 右肩 Y（舉/放，負＝上舉）。 */
     public static final int RIGHT_SHOULDER_Y = 4;
-    /** 右肩 X（前/後擺）。 */
+    /** 右肩 X（側向外展）。 */
     public static final int RIGHT_SHOULDER_X = 5;
-    /** 右肘 Y（彎/伸）。 */
+    /** 右肘 Y（彎/伸，負＝彎）。 */
     public static final int RIGHT_ELBOW_Y = 6;
-    /** 左肩 Z（外展）。 */
+    /** 左肩 Z（水平前後擺）。 */
     public static final int LEFT_SHOULDER_Z = 7;
-    /** 左肩 Y（舉/放）。 */
+    /** 左肩 Y（舉/放，負＝上舉）。 */
     public static final int LEFT_SHOULDER_Y = 8;
-    /** 左肩 X（前/後擺）。 */
+    /** 左肩 X（側向外展）。 */
     public static final int LEFT_SHOULDER_X = 9;
-    /** 左肘 Y（彎/伸）。 */
+    /** 左肘 Y（彎/伸，負＝彎）。 */
     public static final int LEFT_ELBOW_Y = 10;
 
     // ---------------------------------------------------------------
@@ -52,21 +58,21 @@ public final class RobotMotor {
     // ---------------------------------------------------------------
 
     /**
-     * 頭部「左右轉」對應的馬達。
+     * 頭部「左右轉」對應的馬達：NECK_Z（繞垂直軸），正值＝往機器人自己的左邊轉。
      *
-     * <p><b>TODO 實機確認</b>：官方 JavaDoc 對 {@code MOTOR_NECK_Y} / {@code MOTOR_NECK_Z}
-     * 只寫 "Motor neck y" / "Motor neck z"，沒有說明哪個是 yaw、哪個是 pitch。
-     * 機器人學慣例是 Z 軸垂直向上、繞 Z 轉才是左右轉，
-     * 所以目前這組對應<b>有可能是反的</b>。
-     *
-     * <p>驗證方法：單獨下 {@code ctlMotor(RobotMotor.NECK_Z, 30f, 30f)}，
-     * 看頭是左右轉還是上下點。若發現相反，只要把這兩行的 NECK_Y / NECK_Z 對調即可，
-     * 其餘程式碼完全不用動。
+     * <p>依據（官方資料，三者一致）：
+     * <ul>
+     *   <li>NUWA 網頁模擬器的 robot.xml：neck_z 的轉軸是 (0 0 1)，neck_y 是 (0 1 0)</li>
+     *   <li>官方動作 666_TA_LookLR（先看左再看右）：neck_z 先 +21° 再 -18°；neck_y 幾乎不動</li>
+     *   <li>SDK 角度表：NECK_Z 範圍 ±31°（編碼器），NECK_Y ±20°</li>
+     * </ul>
+     * 仍建議用 Test Head Limits 在實機上看一次。
      */
-    public static final int NECK_YAW = NECK_Y;
+    public static final int NECK_YAW = NECK_Z;
 
     /**
-     * 頭部「上下點」對應的馬達。詳見 {@link #NECK_YAW} 的實機確認說明。
+     * 頭部「上下點」對應的馬達：NECK_Y，正值＝低頭。
+     * 依據：官方動作 666_TA_LookDnU（先低頭再抬頭）neck_y 先 +9° 再 -8°。
      */
-    public static final int NECK_PITCH = NECK_Z;
+    public static final int NECK_PITCH = NECK_Y;
 }

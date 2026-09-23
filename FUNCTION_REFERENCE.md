@@ -151,11 +151,12 @@ Kebbi
 
 **用途**：`PoseFeature`（人體資訊）→ `List<RobotCommand>`（機器人指令）的映射器，絕不認識 MediaPipe/Landmark。純 Java。
 
-**對應原則**（scale 與 clamp 都是常數，可依實機觀測調整）：
-- 頭部 yaw × 1.35 → `NECK_Y`（clamp ±90）
-- 頭部 pitch（headPitch）× 1.4 → `NECK_PITCH`（clamp ±30）
-- 左/右手臂角 × 0.5 → `LEFT/RIGHT_SHOULDER_Y`（clamp ±60）
-- 左/右肘角 × 0.5 → `LEFT/RIGHT_ELBOW_Y`（clamp ±60）
+**對應原則**（scale 是可調常數；範圍取自 NuwaUnity SDK 角度表 / NUWA 模擬器 hardware.xml，方向取自官方動作檔）：
+- 頭部 yaw × 1.35 → `NECK_YAW` = `NECK_Z`（-31 ~ 31，正＝機器人往自己左邊轉）
+- 頭部 pitch × 1.4，**反號** → `NECK_PITCH` = `NECK_Y`（-20 ~ 20，正＝低頭）
+- 左/右手臂角（扣休息 20°）× 1.0，**反號** → `LEFT/RIGHT_SHOULDER_Y`（-200 ~ 70，負＝往前上舉）
+- 左/右肘角（175° 減之）× 0.6，**反號** → `LEFT/RIGHT_ELBOW_Y`（-80 ~ 0，負＝彎肘）
+- `minDegFor(id)` / `maxDegFor(id)`：各馬達範圍，`DanceScriptPlayer.sanitize()` 用來在機器人端再夾一次
 
 **方法**
 | 方法 | 參數 | 回傳 | 說明 |
