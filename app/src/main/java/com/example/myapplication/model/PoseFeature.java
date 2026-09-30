@@ -74,6 +74,27 @@ public class PoseFeature {
      * 下游（keyframe 統計、RobotMapper）應該跳過 {@code false} 的幀。
      */
     public boolean confident;
+    /**
+     * 各肢體自己的可信度：頭（鼻、雙肩）、左臂／右臂（雙肩、雙髖、該臂的肘與腕）。
+     * DanceScriptBuilder 用它只略過「看不清楚的那個肢體」，其他肢體照常跟隨，
+     * 不會因為一個手腕被擋住就整幀不動。
+     */
+    public boolean headConfident, leftArmConfident, rightArmConfident;
+
+    /**
+     * 是否有可靠的深度（3D）資料，也就是下面六個手臂方向欄位有效。
+     *
+     * <p>MediaPipe world landmark 與 RTMW3D 都有；只有 2D 的來源（z 全為 0）為 false，
+     * RobotMapper 此時退回用手臂抬升角估計。
+     */
+    public boolean hasArmDirection;
+    /**
+     * 上臂（肩→肘）方向的單位向量，在「身體座標系」中的分量：
+     * forward＝面向的前方、out＝往身體外側（左右手都是外側為正）、up＝往上。
+     * 手臂自然下垂時是 (0, 0, -1)。
+     */
+    public float leftArmForward, leftArmOut, leftArmUp;
+    public float rightArmForward, rightArmOut, rightArmUp;
 
     /** 無參建構子。 */
     public PoseFeature() {

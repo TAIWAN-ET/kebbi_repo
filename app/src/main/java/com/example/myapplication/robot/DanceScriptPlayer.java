@@ -68,6 +68,8 @@ public class DanceScriptPlayer {
     private static final int[] MAPPED_MOTORS = {
             RobotMotor.NECK_YAW, RobotMotor.NECK_PITCH,
             RobotMotor.LEFT_SHOULDER_Y, RobotMotor.RIGHT_SHOULDER_Y,
+            RobotMotor.LEFT_SHOULDER_X, RobotMotor.RIGHT_SHOULDER_X,
+            RobotMotor.LEFT_SHOULDER_Z, RobotMotor.RIGHT_SHOULDER_Z,
             RobotMotor.LEFT_ELBOW_Y, RobotMotor.RIGHT_ELBOW_Y,
     };
 
@@ -231,7 +233,7 @@ public class DanceScriptPlayer {
         }
         float degree = Math.max(minDeg, Math.min(maxDeg, cmd.degree));
         float speed = Math.max(MIN_SPEED_DEG_PER_SEC,
-                Math.min(DanceScriptBuilder.MAX_SPEED_DEG_PER_SEC, cmd.speedDegPerSec));
+                Math.min(RobotMapper.maxSpeedFor(cmd.motorId), cmd.speedDegPerSec));
         return new RobotCommand(cmd.motorId, degree, speed);
     }
 

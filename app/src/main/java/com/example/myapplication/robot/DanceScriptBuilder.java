@@ -48,7 +48,10 @@ public class DanceScriptBuilder {
      * 實機跑一支快歌，若馬達異音或跟不上就調低。
      * {@link DanceScriptPlayer} 播放時也用這個值再夾一次。
      */
-    public static final float MAX_SPEED_DEG_PER_SEC = 150f;
+    public static final float MAX_SPEED_DEG_PER_SEC = 150f; // 舊的全域上限；現在改用 RobotMapper.maxSpeedFor（各馬達官方 velocityLimit）
+
+    /** 每一步希望在下一個取樣點之前的多少比例時間內到位（<1 代表提早到，動作更貼近影片）。 */
+    private static final float REACH_FRACTION = 0.85f;
 
     private final RobotMapper mapper = new RobotMapper();
 
@@ -75,7 +78,7 @@ public class DanceScriptBuilder {
         for (PoseFrame frame : frames) {
             // Step1：特徵 + 可信度
             PoseFeature feature = PoseAnalyzer.analyzeFrame(frame);
-            if (!feature.confident) {
+            if (!feature.headConfident && !feature.leftArmConfident && !feature.rightArmConfident) {
                 script.skippedFrameCount++;
                 continue;
             }
@@ -83,14 +86,22 @@ public class DanceScriptBuilder {
             // Step2 + Step3：映射後只保留有變化的馬達
             List<RobotCommand> changed = new ArrayList<>();
             for (RobotCommand cmd : mapper.map(feature)) {
+                // 只略過看不清楚的肢體，其他肢體照常跟隨
+                int limb = RobotMapper.limbOf(cmd.motorId);
+                if ((limb == RobotMapper.LIMB_HEAD && !feature.headConfident)
+                        || (limb == RobotMapper.LIMB_LEFT_ARM && !feature.leftArmConfident)
+                        || (limb == RobotMapper.LIMB_RIGHT_ARM && !feature.rightArmConfident)) {
+                    continue;
+                }
                 Float previous = lastSentDeg.get(cmd.motorId);
                 if (previous != null) {
                     float delta = Math.abs(cmd.degree - previous);
                     if (delta < DEAD_BAND_DEG) {
                         continue;
                     }
-                    cmd.speedDegPerSec = clamp(delta * 1000f / frameIntervalMs,
-                            MIN_SPEED_DEG_PER_SEC, MAX_SPEED_DEG_PER_SEC);
+                    // 在 REACH_FRACTION 個取樣間隔內到位（留一點餘裕，避免整體慢半拍）
+                    cmd.speedDegPerSec = clamp(delta * 1000f / (frameIntervalMs * REACH_FRACTION),
+                            MIN_SPEED_DEG_PER_SEC, RobotMapper.maxSpeedFor(cmd.motorId));
                 }
                 // previous == null：這顆馬達第一次出現，機器人剛從歸位姿勢出發，
                 // 保留 RobotMapper 的預設速度，讓第一個動作溫和一點
@@ -100,8 +111,10 @@ public class DanceScriptBuilder {
 
             // Step4：有東西要動才記一步
             if (!changed.isEmpty()) {
+                // 提前發出：讓機器人在影片出現這個姿勢的那一刻剛好到位，而不是那一刻才開始動
+                long leadMs = (long) (frameIntervalMs * REACH_FRACTION);
                 script.steps.add(new DanceScript.Step(
-                        frame.timestampMs, feature.inferredEventType, changed));
+                        Math.max(0L, frame.timestampMs - leadMs), feature.inferredEventType, changed));
             }
         }
 

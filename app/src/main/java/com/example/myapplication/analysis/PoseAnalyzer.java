@@ -147,6 +147,19 @@ public final class PoseAnalyzer {
         // Step8：這一幀的上半身關鍵點夠不夠可信
         // MediaPipe 在遮擋時仍會「猜」出座標，不檢查就會產生假動作。
         feature.confident = isUpperBodyConfident(img);
+        feature.headConfident = allConfident(img, PoseLandmark.NOSE,
+                PoseLandmark.LEFT_SHOULDER, PoseLandmark.RIGHT_SHOULDER);
+        feature.leftArmConfident = allConfident(img,
+                PoseLandmark.LEFT_SHOULDER, PoseLandmark.RIGHT_SHOULDER,
+                PoseLandmark.LEFT_HIP, PoseLandmark.RIGHT_HIP,
+                PoseLandmark.LEFT_ELBOW, PoseLandmark.LEFT_WRIST);
+        feature.rightArmConfident = allConfident(img,
+                PoseLandmark.LEFT_SHOULDER, PoseLandmark.RIGHT_SHOULDER,
+                PoseLandmark.LEFT_HIP, PoseLandmark.RIGHT_HIP,
+                PoseLandmark.RIGHT_ELBOW, PoseLandmark.RIGHT_WRIST);
+
+        // Step8b：手臂在身體座標系中的方向（需要真的深度；只有 2D 時 hasArmDirection 為 false）
+        computeArmDirections(frame, feature);
 
         // Step9：由數值推導姿勢事件類型
         feature.inferredEventType = inferEventType(
@@ -161,6 +174,74 @@ public final class PoseAnalyzer {
         }
 
         return feature;
+    }
+
+    /**
+     * 算兩隻上臂（肩→肘）在身體座標系中的方向。
+     *
+     * <p>身體座標系由 world landmark 建立：左向 L＝右肩→左肩，向上 U＝髖中點→肩中點（扣掉 L 分量），
+     * 前方 F＝L×U。座標系假設 x 向右、y 向下、z 遠離鏡頭（右手系；MediaPipe world 與 RTMW3D 轉出的 CSV 都是），
+     * 此時面對鏡頭的人 F 指向鏡頭。因為是用身體本身建座標，人轉身、傾斜都不影響結果。
+     *
+     * <p>沒有深度（world 不存在，或所有點 z 都相同）時不設定，hasArmDirection 保持 false。
+     */
+    private static void computeArmDirections(PoseFrame frame, PoseFeature feature) {
+        if (frame.worldLandmarks == null || frame.worldLandmarks.size() < PoseLandmark.COUNT) {
+            return;
+        }
+        List<Landmark> w = frame.worldLandmarks;
+        Landmark ls = w.get(PoseLandmark.LEFT_SHOULDER);
+        Landmark rs = w.get(PoseLandmark.RIGHT_SHOULDER);
+        Landmark lh = w.get(PoseLandmark.LEFT_HIP);
+        Landmark rh = w.get(PoseLandmark.RIGHT_HIP);
+        Landmark le = w.get(PoseLandmark.LEFT_ELBOW);
+        Landmark re = w.get(PoseLandmark.RIGHT_ELBOW);
+
+        // 2D 來源（z 全 0）沒有前後資訊
+        if (Math.abs(ls.z) + Math.abs(rs.z) + Math.abs(le.z) + Math.abs(re.z) < 1e-6f) {
+            return;
+        }
+
+        float[] left = normalize(ls.x - rs.x, ls.y - rs.y, ls.z - rs.z);
+        if (left == null) {
+            return;
+        }
+        float[] up = new float[]{
+                (ls.x + rs.x) / 2 - (lh.x + rh.x) / 2,
+                (ls.y + rs.y) / 2 - (lh.y + rh.y) / 2,
+                (ls.z + rs.z) / 2 - (lh.z + rh.z) / 2};
+        float dot = up[0] * left[0] + up[1] * left[1] + up[2] * left[2];
+        up = normalize(up[0] - dot * left[0], up[1] - dot * left[1], up[2] - dot * left[2]);
+        if (up == null) {
+            return;
+        }
+        float[] fwd = new float[]{
+                left[1] * up[2] - left[2] * up[1],
+                left[2] * up[0] - left[0] * up[2],
+                left[0] * up[1] - left[1] * up[0]};
+
+        float[] dl = normalize(le.x - ls.x, le.y - ls.y, le.z - ls.z);
+        float[] dr = normalize(re.x - rs.x, re.y - rs.y, re.z - rs.z);
+        if (dl == null || dr == null) {
+            return;
+        }
+        feature.leftArmForward = dot3(dl, fwd);
+        feature.leftArmOut = dot3(dl, left);
+        feature.leftArmUp = dot3(dl, up);
+        feature.rightArmForward = dot3(dr, fwd);
+        feature.rightArmOut = -dot3(dr, left); // 右手的外側＝往「左向」的反方向
+        feature.rightArmUp = dot3(dr, up);
+        feature.hasArmDirection = true;
+    }
+
+    private static float dot3(float[] a, float[] b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    /** 正規化；長度接近 0 時回傳 null。 */
+    private static float[] normalize(float x, float y, float z) {
+        float n = (float) Math.sqrt(x * x + y * y + z * z);
+        return n < 1e-9f ? null : new float[]{x / n, y / n, z / n};
     }
 
     /**
@@ -186,6 +267,15 @@ public final class PoseAnalyzer {
      * @param img normalized landmark 列表（visibility / presence 來源）
      * @return 全部關鍵點都可信才回傳 true
      */
+    private static boolean allConfident(List<Landmark> img, int... ids) {
+        for (int id : ids) {
+            if (!PoseMath.isConfident(img.get(id), CONFIDENCE_THRESHOLD)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static boolean isUpperBodyConfident(List<Landmark> img) {
         int[] required = {
                 PoseLandmark.NOSE,
