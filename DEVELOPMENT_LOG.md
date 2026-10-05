@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-10-05（3D 姿態、肩 Z/X/Y 映射、PyBullet 模擬、網頁對照）
+
+- 改用 rtmlib Wholebody3d（RTMW3D）取得深度；`PoseAnalyzer` 算上臂 3D 方向，`RobotMapper` 反解肩 X/Y，往內收用肩 Z，10 顆馬達全接上。
+- 手臂貼近影片：依肢體判斷可信度、指令提前到位、手肘 1:1；手臂方向誤差 36° → 26°。
+- 速度依官方 SDK 限制為 0~200 °/s（頭上下 120）。
+- 新增 `pc/sim`（PyBullet）、`pc/report`（網頁對照）、`pc/extract_pose3d.py`。
+- `gradlew assembleDebug` BUILD SUCCESSFUL；**尚未上實機**。
+- 目前進度、待確認與待實現事項見 `PROGRESS.md`；詳細數據見 `pc/report/CHANGES.md`。
+
+---
+
+
 ## 2026-09-24（馬達軸向/方向/範圍依官方資料修正；移除 web_sim）
 
 ### 目標
