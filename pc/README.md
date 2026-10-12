@@ -7,8 +7,11 @@ Kebbi 上不用再跑 MediaPipe。
 影片 ─► extract_pose.py (Python + MediaPipe)
           ├─ pose_landmarks.csv         normalized 座標
           └─ pose_world_landmarks.csv   world 公制座標
+     ─► extract_face.py (MediaPipe Face Landmarker，用姿態框出頭部)
+          └─ face_blendshapes.csv       52 個臉部 blendshape 分數
      ─► DanceScriptGenerator (Java，直接重用 App 的程式碼)
-          PoseIO → 平滑 → PoseAnalyzer → RobotMapper → DanceScriptBuilder
+          PoseIO → 平滑 → PoseAnalyzer → RobotMapper → DanceScriptBuilder   → steps（馬達）
+          FaceIO → FaceExpressionAnalyzer → FaceScriptBuilder → KebbiFaceMap → faces（換臉）
      ─► dance_script.json   ← 送給 Kebbi 的檔案
 ```
 
@@ -36,7 +39,8 @@ py -3.12 -m venv .venv
 | `--max-seconds N` | 只分析前 N 秒 |
 | `--interval 200` | 取樣間隔（毫秒），預設和 App 相同 |
 | `--name xxx` | 腳本內的舞蹈名稱 |
-| `--skip-extract` | 沿用上次的 CSV，只重跑映射（調 `RobotMapper` 參數時用，幾秒就好） |
+| `--skip-extract` | 沿用上次的 CSV，只重跑映射（調 `RobotMapper` 參數時用，幾秒就好）；沒有臉部 CSV 時仍會跑臉部辨識 |
+| `--no-face` | 不做臉部表情辨識，腳本裡沒有換臉事件 |
 
 ## 調參數
 
@@ -46,6 +50,36 @@ py -3.12 -m venv .venv
 - 死區、速度上下限：`app/.../robot/DanceScriptBuilder.java`
 
 改完直接跑 `make_dance.py ... --skip-extract` 就好，不用重裝 APK。
+
+## 臉部表情
+
+`extract_face.py` 每個取樣點量一次臉（和姿態同一組 `time_ms`），第一次執行會自動下載
+`face_landmarker.task`（約 3.7 MB）到 `pc/models/`。舞蹈影片的臉通常很小，所以先用姿態的臉部點框出頭部、
+放大後再偵測，框不到才用整張畫面。
+
+判斷規則在 `app/.../analysis/FaceExpressionAnalyzer.java`，表情只分 5 種：
+NEUTRAL、HAPPY、SURPRISED、ANGRY、SAD。用 1163 張有標註的網路人臉照片量過：整體 47%（隨機猜 20%），
+HAPPY / SURPRISED 的精確度 0.6~0.7，ANGRY / SAD 約 0.4，拿不準時判成 NEUTRAL（不換臉）。
+
+換臉時間（`app/.../robot/FaceScriptBuilder.java`、參數在 `KebbiFaceMap.java`）：
+
+| 規則 | 參數 | 原因 |
+|---|---|---|
+| 新表情要連續出現才算 | `MIN_STABLE_MS` 600 | 過濾眨眼、說話嘴形、偵測雜訊 |
+| 換臉後至少停留 | `MIN_HOLD_MS` 1200 | Kebbi 的臉是一段動畫，換太快只會一直閃 |
+| 換臉時間＝表情**開始**出現的那一幀 | | 離線分析知道未來，不用等確認穩定才換 |
+| 再提早送出 | `FACE_LEAD_MS` 200 | 機器人端的臉部服務 + 動畫過渡延遲（腳本整份先傳到機器人，Wi-Fi 延遲不影響對齊） |
+| 看不到臉太久回預設臉 | `FACE_LOST_RESET_MS` 3000 | 轉身、遮擋時不要一直卡在某個表情 |
+
+表情 → Kebbi 臉的名稱也在 `KebbiFaceMap.java`。**名稱還沒在實機上確認**（SDK 文件沒有臉部動畫清單），
+改完重跑 `make_dance.py ... --skip-extract` 就好，不用重裝 APK。
+
+量準確度 / 調門檻：照片依表情放在子資料夾（`happy/`、`surprised/`、`angry/`、`sad/`、`neutral/`），
+
+```bash
+.venv/Scripts/python eval_face.py <照片資料夾> --out out/face_eval.csv
+java -cp build/classes com.example.myapplication.pc.FaceExpressionEval out/face_eval.csv
+```
 
 ## 腳本格式
 
@@ -98,4 +132,5 @@ python send_script.py 127.0.0.1 out/<影片檔名>/dance_script.json --play
 - 先送第一步，等 1.5 秒讓機器人就位，才開始計時
 - 每一步都對齊絕對時間送出，不會越播越慢；落後時立刻補送
 - 送出前再夾一次角度（`RobotMapper.maxDegFor`）與速度（≤150°/s），RobotMapper 不會驅動的馬達一律拒送
+- 換臉事件和馬達步驟用同一個時間軸（同一時間先換臉）；第一次換臉時把 Kebbi 的臉叫到最上層，結束時收起來
 - 正常播完自動歸位；按 Stop 則停在原地

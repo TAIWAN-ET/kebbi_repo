@@ -1,20 +1,24 @@
 package com.example.myapplication.pc;
 
 import com.example.myapplication.io.DanceScriptIO;
+import com.example.myapplication.io.FaceIO;
 import com.example.myapplication.io.PoseIO;
 import com.example.myapplication.math.PoseMath;
 import com.example.myapplication.model.DanceScript;
+import com.example.myapplication.model.FaceFrame;
 import com.example.myapplication.model.Landmark;
 import com.example.myapplication.model.MotionSequence;
 import com.example.myapplication.model.PoseFrame;
 import com.example.myapplication.model.PoseLandmark;
 import com.example.myapplication.robot.DanceScriptBuilder;
+import com.example.myapplication.robot.FaceScriptBuilder;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -26,7 +30,10 @@ import java.util.Map;
  * <p>用法：
  * <pre>
  * java DanceScriptGenerator &lt;landmarks.csv&gt; &lt;world_landmarks.csv | -&gt; &lt;out.json&gt; [name] [intervalMs]
+ *      [face_blendshapes.csv | -]
  * </pre>
+ *
+ * <p>給了 face_blendshapes.csv（{@code extract_face.py} 的輸出）就同時產生換臉事件（{@link FaceScriptBuilder}）。
  *
  * <p>不負責什麼：不跑 MediaPipe、不傳送到機器人。
  */
@@ -43,7 +50,7 @@ public final class DanceScriptGenerator {
     public static void main(String[] args) throws IOException {
         if (args.length < 3) {
             System.err.println("usage: DanceScriptGenerator <landmarks.csv> <world_landmarks.csv | -> "
-                    + "<out.json> [name] [intervalMs]");
+                    + "<out.json> [name] [intervalMs] [face_blendshapes.csv | -]");
             System.exit(2);
         }
         File landmarkCsv = new File(args[0]);
@@ -51,6 +58,7 @@ public final class DanceScriptGenerator {
         File outJson = new File(args[2]);
         String name = args.length > 3 ? args[3] : stripExtension(landmarkCsv.getName());
         long intervalMs = args.length > 4 ? Long.parseLong(args[4]) : DEFAULT_INTERVAL_MS;
+        File faceCsv = args.length > 5 && !"-".equals(args[5]) ? new File(args[5]) : null;
 
         // Step1：讀 normalized landmark（沿用 App 的 PoseIO）
         MotionSequence sequence = PoseIO.readCsv(landmarkCsv);
@@ -70,17 +78,39 @@ public final class DanceScriptGenerator {
 
         // Step4：產生腳本
         DanceScript script = new DanceScriptBuilder().build(name, sequence.frames, intervalMs);
+
+        // Step5：表情 → 換臉事件（同一份腳本、同一個時間軸）
+        int faceFrames = 0;
+        int faceDetected = 0;
+        if (faceCsv != null) {
+            List<FaceFrame> faces = FaceIO.readCsv(faceCsv);
+            faceFrames = faces.size();
+            for (FaceFrame face : faces) {
+                faceDetected += face.detected ? 1 : 0;
+            }
+            script.faces = new FaceScriptBuilder().build(faces, intervalMs);
+        }
         DanceScriptIO.write(outJson, script);
 
-        // Step5：讀回驗證，確認 Kebbi 端用同一份程式碼讀得回來
+        // Step6：讀回驗證，確認 Kebbi 端用同一份程式碼讀得回來
         DanceScript readBack = DanceScriptIO.read(outJson);
         boolean roundTripOk = readBack.steps.size() == script.steps.size()
                 && readBack.getCommandCount() == script.getCommandCount()
-                && readBack.durationMs == script.durationMs;
+                && readBack.durationMs == script.durationMs
+                && readBack.faces.size() == script.faces.size();
 
         System.out.println(script.describe());
         System.out.println("world landmarks matched: " + worldMatched + "/" + sequence.frames.size()
                 + (worldMatched == 0 ? "  (WARNING: angles fall back to image coords)" : ""));
+        if (faceCsv != null) {
+            System.out.println("faces detected: " + faceDetected + "/" + faceFrames
+                    + ", expression changes: " + script.faces.size());
+            for (DanceScript.FaceEvent face : script.faces) {
+                System.out.println(String.format(Locale.US, "  t=%6dms (video %6dms)  %-9s -> %s  score=%.2f",
+                        face.timeMs, face.videoMs, face.expression,
+                        face.face.isEmpty() ? "(default face)" : face.face, face.score));
+            }
+        }
         System.out.println("round-trip: " + (roundTripOk ? "OK" : "FAILED"));
         System.out.println("wrote " + outJson.getAbsolutePath());
         if (!roundTripOk) {

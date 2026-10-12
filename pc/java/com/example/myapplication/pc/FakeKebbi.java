@@ -10,7 +10,7 @@ import java.util.Locale;
 
 /**
  * 在電腦上假裝成 Kebbi：跑和 App 完全相同的 ScriptServer + DanceScriptPlayer，
- * 只是馬達指令改成印在終端機上。
+ * 只是馬達指令和換臉改成印在終端機上。
  *
  * <p>用途：沒有機器人時，驗證 send_script.py → Wi-Fi → 播放時間軸整條路是通的。
  *
@@ -33,7 +33,21 @@ public final class FakeKebbi {
             System.out.println(String.format(Locale.US, "  [%6dms] %s", ms, cmd.describe()));
             return true;
         };
-        DanceScriptPlayer player = new DanceScriptPlayer(sink);
+        DanceScriptPlayer.FaceSink faceSink = new DanceScriptPlayer.FaceSink() {
+            @Override
+            public boolean show(String face) {
+                long ms = (System.nanoTime() - playStartNanos[0]) / 1_000_000L;
+                System.out.println(String.format(Locale.US, "  [%6dms] FACE %s", ms,
+                        face.isEmpty() ? "(default)" : face));
+                return true;
+            }
+
+            @Override
+            public void reset() {
+                System.out.println("  FACE reset");
+            }
+        };
+        DanceScriptPlayer player = new DanceScriptPlayer(sink, faceSink);
         DanceScriptPlayer.Listener listener = new DanceScriptPlayer.Listener() {
             @Override
             public void onStep(int index, int total, DanceScript.Step step) {

@@ -7,6 +7,8 @@ import com.nuwarobotics.lib.action.ApiManager;
 import com.nuwarobotics.lib.action.manager.NuwaRobotManager;
 import com.nuwarobotics.lib.action.manager.NuwaVoiceManager;
 import com.nuwarobotics.service.agent.NuwaRobotAPI;
+import com.nuwarobotics.service.facecontrol.IonCompleteListener;
+import com.nuwarobotics.service.facecontrol.UnityFaceManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -91,6 +93,14 @@ public class RobotController {
     // 腳本播放執行緒和 UI 觸發的測試可能同時寫入，用 ConcurrentHashMap
     private final java.util.Map<Integer, Float> lastCommandedDegree =
             new java.util.concurrent.ConcurrentHashMap<>();
+    /** 這次播放是否已經把 Kebbi 的臉（Unity 畫面）叫到最上層。 */
+    private volatile boolean faceShown;
+    /** 臉部動畫播完的回呼；不需要做事，但不傳 null 給 AIDL。 */
+    private final IonCompleteListener.Stub faceDoneListener = new IonCompleteListener.Stub() {
+        @Override
+        public void onComplete(String face) {
+        }
+    };
     /** 動作播放間隔（毫秒），由 UI 調整。 */
     private int motionStepMs = 1200;
 
@@ -588,6 +598,58 @@ public class RobotController {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /**
+     * 讓 Kebbi 的臉播放一段表情動畫，立刻返回。
+     *
+     * <p>給 {@link DanceScriptPlayer} 的換臉事件用（表情來自 PC 端的臉部辨識，名稱見 {@link KebbiFaceMap}）。
+     * Kebbi 的臉是 Nuwa 的 Unity 畫面，平常被這個 App 蓋住，所以第一次換臉時先 {@code showUnity()}
+     * 把臉叫到前面，播完由 {@link #resetFace()} 收起來。
+     *
+     * <p>TODO 實機確認：{@code playMotion} 只要臉部服務有連上就回傳 true，名稱錯了也不會報錯，
+     * 要在機器人上看臉有沒有變；也要確認 showUnity 會不會擋住播放中的 App 操作。
+     *
+     * @param face 臉部動畫名稱；空字串＝停掉動畫、回到預設臉
+     * @return 成功交給臉部服務回傳 true；SDK 或臉部服務未就緒回傳 false
+     */
+    public boolean showFace(String face) {
+        UnityFaceManager faceManager = UnityFaceManager.getInstance();
+        if (!isReady() || faceManager == null || !faceManager.isServiceConnected()) {
+            return false;
+        }
+        try {
+            if (!faceShown) {
+                faceManager.showUnity();
+                faceShown = true;
+            }
+            if (face == null || face.isEmpty()) {
+                return faceManager.stopMotion();
+            }
+            return faceManager.playMotion(face, faceDoneListener);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 停掉臉部動畫並把臉收起來，回到 App 畫面（腳本播完或被停止時呼叫）。
+     */
+    public void resetFace() {
+        if (!faceShown) {
+            return;
+        }
+        faceShown = false;
+        UnityFaceManager faceManager = UnityFaceManager.getInstance();
+        if (faceManager == null) {
+            return;
+        }
+        try {
+            faceManager.stopMotion();
+            faceManager.hideUnity();
+        } catch (Exception ignored) {
+            // 臉部服務斷線時沒有東西要收
         }
     }
 
