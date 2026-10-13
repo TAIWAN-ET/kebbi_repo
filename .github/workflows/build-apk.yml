@@ -1,0 +1,25 @@
+name: Build debug APK
+
+on:
+  push:
+    branches: [ "claude/build-apk-*" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: yes | sdkmanager "platforms;android-36.1" "build-tools;36.0.0" > /dev/null
+      - name: Build
+        run: bash ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kebbi-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
