@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<title>Kebbi rtmlib 單位修正展示</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--a:#38bdf8;--b:#f97316;--g:#4ade80;--r:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,"Microsoft JhengHei",sans-serif;padding:16px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:0 0 10px;color:var(--a)}.sub{color:var(--mut);margin-bottom:14px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--card);border-radius:10px;padding:14px}
+video{width:100%;border-radius:6px;background:#000}canvas{width:100%;display:block}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0}.bar span.l{width:70px;color:var(--mut)}
+.bar div.f{height:16px;border-radius:3px;min-width:2px}.bar b{width:28px}
+input[type=range]{width:100%}.row{display:flex;gap:8px;align-items:center;margin-top:8px}
+button{background:var(--a);color:#04263a;border:0;border-radius:6px;padding:6px 14px;font-weight:600;cursor:pointer}
+.kv{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px}.kv i{color:var(--mut);font-style:normal}
+.ok{color:var(--g)}.warn{color:var(--b)}code{background:#0b1220;padding:1px 5px;border-radius:4px}
+</style></head><body>
+<h1>Kebbi 影片 → 舞蹈腳本：rtmlib 單位修正展示</h1>
+<div class="sub">rtmlib（像素）→ normalized → Kebbi Java 管線 → <code>dance_script.json</code> → FakeKebbi 播放 ・ 影片 63.9 秒、383 幀</div>
+<div class="grid">
+ <div class="card" style="grid-column:1/-1"><h2>播放（影片與腳本同步）</h2>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+   <div><div class="sub" style="margin:0 0 4px">原始影片＋偵測骨架</div><div style="position:relative"><video id="vid" src="../../video_push/37421255165-1-192.mp4" muted playsinline></video><canvas id="ov" width="1280" height="720" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas></div></div>
+   <div><div class="sub" style="margin:0 0 4px">Kebbi 3D 模型（依腳本馬達角度）</div><div id="robot" style="width:100%;aspect-ratio:16/9;background:#0b1220;border-radius:6px"></div><div class="sub" style="margin:6px 0 0;line-height:1.9"><span style="color:#a78bfa">■</span>頭上下 <span style="color:#38bdf8">■</span>頭左右 <span style="color:#fb7185">■</span>肩Z <span style="color:#f97316">■</span>肩Y <span style="color:#facc15">■</span>肩X <span style="color:#4ade80">■</span>手肘 <span style="color:#d5d9e0">■</span>身體</div></div>
+   <div id="motors" style="grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:2px 12px"></div>
+  </div>
+  <div class="row"><label style="color:var(--mut)"><input type="checkbox" id="usesim"> 模型改用 PyBullet 實際角度</label></div>
+  <div class="row"><label style="color:var(--mut)"><input type="checkbox" id="showov" checked> 顯示偵測骨架</label></div>
+  <div class="row"><button id="play">播放</button><button id="prev">◀ 0.2s</button><button id="next">0.2s ▶</button><select id="rate"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select>×<input id="seek" type="range" min="0" max="63907" value="0"><span id="clock">0.0s</span></div>
+  <canvas id="tl" width="1200" height="260" style="margin-top:10px"></canvas>
+  <div class="sub" style="margin:4px 0 0">曲線＝各馬達目標角度（依腳本速度線性插值）；垂直線＝目前時間。灰色區塊＝被略過（信心不足）的時段。</div>
+ </div>
+ <div class="card"><h2>修正前後：33 幀出貨資料的事件分佈</h2><div id="bars"></div>
+  <div class="sub" style="margin-top:8px">舊版把像素當 0~1 用，門檻＝0.05 像素，任何微小偏移都算「傾斜」。</div></div>
+ <div class="card"><h2>FakeKebbi 結果</h2><div class="kv">
+  <i>步數</i><span>291 / 291</span><span class="ok">✔</span>
+  <i>馬達指令</i><span>1339</span><span></span>
+  <i>被拒指令</i><span>0</span><span class="ok">✔</span>
+  <i>最大延遲</i><span>0 ms</span><span class="ok">✔</span>
+  <i>略過幀</i><span>88 / 383（23%）</span><span class="warn">!</span>
+  <i>範圍</i><span>全在官方限位內</span><span class="ok">✔</span></div>
+  <div class="sub" style="margin-top:8px">略過主因：左手腕信心 &lt; 0.5（66 幀）。</div></div>
+
+ <div class="card" style="grid-column:1/-1"><h2>PyBullet 物理模擬</h2><div id="simbox" class="sub">沒有模擬資料（先跑 pc/sim/pybullet_sim.py 再 build_report.py）</div></div>
+</div>
+<script src="data.js"></script>
+<script>
+const S=DATA.script,steps=S.steps,DUR=S.durationMs;
+const NAMES={1:"頭上下 NECK_Y",2:"頭左右 NECK_Z",3:"右肩 Z",4:"右肩 Y",5:"右肩 X",6:"右肘 Y",7:"左肩 Z",8:"左肩 Y",9:"左肩 X",10:"左肘 Y"};
+const JOINT={1:"neck_y",2:"neck_z",3:"right_shoulder_z",4:"right_shoulder_y",5:"right_shoulder_x",6:"right_elbow_y",7:"left_shoulder_z",8:"left_shoulder_y",9:"left_shoulder_x",10:"left_elbow_y"};
+const COL={1:"#a78bfa",2:"#38bdf8",3:"#fb7185",4:"#f97316",5:"#facc15",6:"#fbbf24",7:"#22d3ee",8:"#4ade80",9:"#a3e635",10:"#f472b6"};
+const MOT=Object.keys(NAMES).map(Number);
+// 每個馬達的線段：{t0,t1,a0,a1}
+const seg={};MOT.forEach(m=>seg[m]=[]);
+const cur={};
+steps.forEach(st=>st.cmds.forEach(c=>{
+  const a0=cur[c.motor]===undefined?c.deg:cur[c.motor];
+  const t0=(seg[c.motor].length?seg[c.motor].at(-1).t1:st.t);
+  const s=Math.max(st.t,t0),dur=Math.abs(c.deg-a0)/c.speed*1000;
+  if(seg[c.motor]) seg[c.motor].push({ts:st.t,t1:st.t+dur,a0,a1:c.deg});
+  cur[c.motor]=c.deg;
+}));
+function angle(m,t){const L=seg[m];let a=L.length?L[0].a0:0;
+  for(const g of L){if(g.ts>t)break;a=t>=g.t1?g.a1:g.a0+(g.a1-g.a0)*(t-g.ts)/Math.max(1,g.t1-g.ts)}return a}
+// gaps（腳本步驟間隔 > 1.5s 視為略過/沒動作）
+const tl=document.getElementById("tl"),tc=tl.getContext("2d");
+function drawTL(t){const W=tl.width,H=tl.height;tc.clearRect(0,0,W,H);
+  const px=x=>x/DUR*W, py=d=>H/2-d*(H/2-14)/170;
+  tc.strokeStyle="#334155";tc.lineWidth=1;tc.font="11px sans-serif";tc.fillStyle="#94a3b8";
+  [-150,-100,-50,0,50].forEach(d=>{tc.beginPath();tc.moveTo(0,py(d));tc.lineTo(W,py(d));tc.stroke();tc.fillText(d+"°",2,py(d)-2)});
+  MOT.forEach(m=>{tc.strokeStyle=COL[m];tc.lineWidth=1.6;tc.beginPath();
+    for(let x=0;x<=W;x+=2){const a=angle(m,x/W*DUR);x?tc.lineTo(x,py(a)):tc.moveTo(x,py(a))}tc.stroke()});
+  tc.strokeStyle="#fff";tc.lineWidth=2;tc.beginPath();tc.moveTo(px(t),0);tc.lineTo(px(t),H);tc.stroke();}
+function simAngle(m,t){const F=DATA.sim.frames;let lo=0,hi=F.length-1;while(lo<hi){const mid=(lo+hi)>>1;F[mid].t<t?lo=mid+1:hi=mid}return F[lo].actual[m]}
+function drawRobot(t){if(window.setPose){const useSim=DATA.sim&&document.getElementById("usesim").checked;const p={};MOT.forEach(m=>p[JOINT[m]]=useSim?simAngle(m,t):angle(m,t));window.setPose(p)}}
+function update(t){document.getElementById("clock").textContent=(t/1000).toFixed(1)+"s";
+  document.getElementById("motors").innerHTML=MOT.map(m=>`<div><span style="color:${COL[m]}">${NAMES[m]}</span> <b>${angle(m,t).toFixed(0)}°</b></div>`).join("");drawOv(t);
+  drawTL(t);drawRobot(t);}
+const v=document.getElementById("vid"),sk=document.getElementById("seek");let playing=false;
+document.getElementById("play").onclick=()=>{playing=!playing;playing?v.play():v.pause();document.getElementById("play").textContent=playing?"暫停":"播放"};
+sk.oninput=()=>{v.currentTime=sk.value/1000;update(+sk.value)};
+let lastT=-1;
+(function loop(){const t=v.currentTime*1000;if(Math.abs(t-lastT)>1){lastT=t;sk.value=t;update(t)}requestAnimationFrame(loop)})();
+const step=d=>{v.pause();playing=false;document.getElementById("play").textContent="播放";v.currentTime=Math.max(0,Math.min(DUR/1000,v.currentTime+d))};
+document.getElementById("prev").onclick=()=>step(-0.2);document.getElementById("next").onclick=()=>step(0.2);
+document.getElementById("rate").onchange=e=>v.playbackRate=+e.target.value;
+document.getElementById("showov").onchange=()=>drawOv(v.currentTime*1000);
+// 影片上的偵測骨架：nose、肩、肘、腕、髖（左＝橘、右＝青；信心低的點變灰）
+const LINKS=[[1,2,"#e2e8f0"],[7,8,"#e2e8f0"],[1,3,"#fb923c"],[3,5,"#fb923c"],[1,7,"#fb923c"],[2,4,"#22d3ee"],[4,6,"#22d3ee"],[2,8,"#22d3ee"]];
+function drawOv(t){const c=document.getElementById("ov").getContext("2d");c.clearRect(0,0,1280,720);
+ if(!DATA.pose||!document.getElementById("showov").checked)return;
+ let lo=0,hi=DATA.pose.length-1;while(lo<hi){const m=(lo+hi)>>1;DATA.pose[m].t<t?lo=m+1:hi=m}
+ if(lo>0&&Math.abs(DATA.pose[lo-1].t-t)<Math.abs(DATA.pose[lo].t-t))lo--;const P=DATA.pose[lo].p;
+ c.lineWidth=5;LINKS.forEach(([a,b,col])=>{c.strokeStyle=col;c.beginPath();c.moveTo(P[a][0]*1280,P[a][1]*720);c.lineTo(P[b][0]*1280,P[b][1]*720);c.stroke()});
+ P.forEach(p=>{c.fillStyle=p[2]<0.5?"#94a3b8":"#fff";c.beginPath();c.arc(p[0]*1280,p[1]*720,7,0,7);c.fill()})}
+v.onended=()=>{playing=false;document.getElementById("play").textContent="播放"};
+update(0);
+// bars
+const B=DATA.shipped_counts,lab={LEAN:["傾斜","#f87171"],HAND_UP:["舉手","#f97316"],NEUTRAL:["中立","#4ade80"]};
+document.getElementById("bars").innerHTML=["pixel","normalized"].map(k=>`<div style="margin-bottom:8px"><b>${k=="pixel"?"修正前（像素）":"修正後（normalized）"}</b>`+
+ Object.entries(lab).map(([e,[n,c]])=>`<div class="bar"><span class="l">${n}</span><div class="f" style="background:${c};width:${B[k][e]/33*70}%"></div><b>${B[k][e]}</b></div>`).join("")+`</div>`).join("");
+</script><script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const box=document.getElementById('robot'),r=new THREE.WebGLRenderer({antialias:true});
+r.setPixelRatio(devicePixelRatio);box.appendChild(r.domElement);r.domElement.style.cssText='width:100%;height:100%;display:block';
+const sc=new THREE.Scene();sc.add(new THREE.HemisphereLight(0xffffff,0x334155,2.2));
+const sun=new THREE.DirectionalLight(0xffffff,2);sun.position.set(1,2,2);sc.add(sun);
+const cam=new THREE.PerspectiveCamera(35,1,0.01,10);cam.position.set(0.8,0.3,0.05);
+const ctl=new OrbitControls(cam,r.domElement);ctl.target.set(0,0.2,0);ctl.update();
+function fit(){const w=box.clientWidth,h=box.clientHeight;r.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}
+fit();addEventListener('resize',fit);
+window.cam=cam;window.ctl=ctl;const J={},pending={};let SIGN={right_shoulder_x:-1,right_shoulder_z:-1}; // 右臂 X/Z 軸方向與左臂相反（實測：+ 值左臂外展、右臂內收）
+window.SIGN=SIGN;let last=null;
+new GLTFLoader().load('kebbi.glb',g=>{sc.add(g.scene);g.scene.traverse(n=>{if(n.userData&&n.userData.axis)J[n.name]={n,q:n.quaternion.clone(),ax:new THREE.Vector3(...n.userData.axis)}});
+ window.setPose=p=>{last=p;for(const k in p){const j=J[k];if(!j)continue;j.n.quaternion.copy(j.q).multiply(new THREE.Quaternion().setFromAxisAngle(j.ax,p[k]*(SIGN[k]??1)*Math.PI/180))}};
+ const KEY=["neck_y","neck_z","shoulder_z","shoulder_y","shoulder_x","elbow_y"];
+ const CLR={neck_y:0xa78bfa,neck_z:0x38bdf8,shoulder_z:0xfb7185,shoulder_y:0xf97316,shoulder_x:0xfacc15,elbow_y:0x4ade80};
+ g.scene.traverse(o=>{if(!o.isMesh)return;let n=o.parent,key=null;while(n&&!key){if(J[n.name]){key=KEY.find(k=>n.name.endsWith(k))}n=n.parent}
+  o.material=o.material.clone();o.material.color.set(key?CLR[key]:0xd5d9e0)});
+ window.J=J;update(+document.getElementById('seek').value)});
+r.setAnimationLoop(()=>{fit();r.render(sc,cam)});
+</script>
+
+<script>
+document.getElementById("usesim").onchange=()=>update(+document.getElementById("seek").value);
+if(DATA.sim){const S=DATA.sim;const rows=Object.entries(S.tracking).map(([n,v])=>`<tr><td>${n}</td><td>${v.mean_abs_err_deg}°</td><td>${v.max_err_deg}°</td></tr>`).join("");
+const col=S.new_collisions.length?S.new_collisions.map(c=>`<li>${c.pair.join(" × ")}：${c.frames} 幀、最深 ${c.max_depth_mm} mm、首次 ${(c.first_ms/1000).toFixed(1)}s</li>`).join(""):"<li class='ok'>無</li>";
+const ov=Object.entries(S.commands_over_velocity_limit).map(([k,v])=>`${k}：${v} 條`).join("、")||"無";
+document.getElementById("simbox").outerHTML=`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"><table style="border-collapse:collapse"><tr style="color:var(--mut)"><td>關節</td><td>平均誤差</td><td>最大誤差</td></tr>${rows}</table><div><b>新出現的自碰撞</b>（排除站姿本來就接觸的 ${S.baseline_contact_pairs} 組）<ul>${col}</ul><b>超過馬達速度上限的指令</b>：${ov}<div class="sub" style="margin-top:8px">位置控制、力矩上限 ${S.torque_limit_nm} N·m（估計值）。誤差多半來自馬達速度有限、目標跳很快時追不上。碰撞用凸包近似，僅供參考。</div></div></div>`}
+</script>
+</body></html>

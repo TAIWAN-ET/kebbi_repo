@@ -15,3 +15,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# PC 端分析工具
+/pc/.venv/
+/pc/build/
+/pc/out/
+__pycache__/
+/pc/models/

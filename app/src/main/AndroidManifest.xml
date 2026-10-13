@@ -2,8 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Android 13 (API 33) 以上用 READ_MEDIA_VIDEO -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- minSdk 是 24，Kebbi Air H202 的 Android 版本比 33 舊，
+         只宣告 READ_MEDIA_VIDEO 在機器人上等於沒有讀取權限。 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- PC Offload：ScriptServer 在區網接收電腦送來的舞蹈腳本 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -29,7 +36,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".CameraTestActivity"
+            android:name=".camera.CameraTestActivity"
             android:exported="false" />
     </application>
 

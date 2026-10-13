@@ -40,7 +40,8 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)
     implementation(libs.material)
-    implementation("com.google.mediapipe:tasks-vision:latest.release")
+    // 鎖定版號：latest.release 會讓建置不可重現，Google 一改 API 就無預警爆掉。
+    implementation("com.google.mediapipe:tasks-vision:0.10.29")
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)
