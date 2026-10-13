@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kebbi 舞蹈工具</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%227%22 fill=%22%232563eb%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Kebbi 舞蹈工具</h1>
+  <span class="sub">影片 → 姿態與表情分析 → 舞蹈腳本 → Kebbi 播放</span>
+  <span id="busy" class="pill hidden"></span>
+</header>
+
+<main>
+  <!-- 1. 影片與分析 -->
+  <section class="card" id="sec-analyze">
+    <h2><span class="num">1</span>選影片並分析</h2>
+    <div class="row">
+      <label class="grow">影片
+        <select id="video-select"></select>
+      </label>
+      <label class="btn secondary file-btn">上傳影片
+        <input type="file" id="video-upload" accept="video/*" hidden>
+      </label>
+    </div>
+    <div id="upload-progress" class="hint hidden"></div>
+    <div class="grid">
+      <label>姿態模型
+        <select id="engine">
+          <option value="mediapipe">MediaPipe（快，2D 為主）</option>
+          <option value="rtmw3d">RTMW3D（慢，有深度，手臂較準）</option>
+        </select>
+      </label>
+      <label>只分析前幾秒<input type="number" id="max-seconds" min="0" step="1" placeholder="全部"></label>
+      <label>取樣間隔（毫秒）<input type="number" id="interval" min="50" step="50" value="200"></label>
+      <label>結果名稱<input type="text" id="out-name" placeholder="預設＝影片檔名"></label>
+    </div>
+    <div class="row checks">
+      <label class="check"><input type="checkbox" id="face" checked> 辨識臉部表情（換臉）</label>
+      <label class="check"><input type="checkbox" id="skip-extract"> 只重跑映射（沿用上次姿態資料，改 RobotMapper 參數後用）</label>
+    </div>
+    <div class="row">
+      <button id="btn-analyze">開始分析</button>
+      <button id="btn-cancel" class="secondary hidden">取消</button>
+    </div>
+  </section>
+
+  <!-- 執行紀錄 -->
+  <section class="card" id="sec-log">
+    <h2>執行紀錄 <span id="job-title" class="muted"></span></h2>
+    <pre id="log" class="log">尚未執行任何工作。</pre>
+  </section>
+
+  <!-- 2. 預覽 -->
+  <section class="card wide" id="sec-preview">
+    <h2><span class="num">2</span>預覽結果</h2>
+    <div class="row">
+      <label class="grow">結果
+        <select id="result-select"></select>
+      </label>
+      <button id="btn-refresh" class="secondary">重新整理</button>
+      <a id="btn-download" class="btn secondary" download>下載腳本</a>
+      <button id="btn-sim" class="secondary">PyBullet 模擬</button>
+    </div>
+    <div id="result-summary" class="hint"></div>
+    <div class="preview">
+      <div class="video-box">
+        <video id="video" controls preload="metadata"></video>
+        <div id="no-video" class="hint hidden">
+          這份結果沒有記錄來源影片。
+          <select id="assign-video"></select>
+          <button id="btn-assign" class="secondary small">指定</button>
+        </div>
+      </div>
+      <div class="state-box">
+        <div class="now"><span id="now-t">0.00 s</span><span id="now-event" class="pill"></span><span id="now-face" class="pill face"></span></div>
+        <div id="motors"></div>
+      </div>
+    </div>
+    <div class="timeline-head">
+      <span>馬達角度時間軸（點一下可跳到該時間）</span>
+      <span id="legend"></span>
+    </div>
+    <svg id="timeline" preserveAspectRatio="none"></svg>
+    <div id="sim-summary" class="hint"></div>
+  </section>
+
+  <!-- 3. 傳給 Kebbi -->
+  <section class="card" id="sec-kebbi">
+    <h2><span class="num">3</span>傳給 Kebbi 播放</h2>
+    <p class="hint">Kebbi App 上先按「開啟遠端接收」，畫面會顯示 IP。電腦和 Kebbi 要在同一個 Wi-Fi。</p>
+    <div class="row">
+      <label class="grow">Kebbi IP<input type="text" id="kebbi-host" placeholder="例如 192.168.1.50"></label>
+      <label style="width:7em">埠號<input type="number" id="kebbi-port" value="8765"></label>
+      <button id="btn-status" class="secondary">連線測試</button>
+    </div>
+    <div id="kebbi-state" class="hint">尚未連線。</div>
+    <div class="row">
+      <button id="btn-upload-play">上傳並播放</button>
+      <button id="btn-upload" class="secondary">只上傳</button>
+      <button id="btn-play" class="secondary">重播</button>
+      <button id="btn-stop" class="danger">停止</button>
+      <button id="btn-home" class="secondary">歸位</button>
+    </div>
+    <div class="row checks">
+      <label class="check"><input type="checkbox" id="sync-video" checked> 同時在上方播放影片</label>
+      <label>影片延後（毫秒）<input type="number" id="sync-offset" value="1500" step="50" style="width:7em"></label>
+    </div>
+    <p class="hint">Kebbi 收到「播放」後會先就位 1.5 秒才開始計時，所以影片預設延後 1500 ms。
+      實際的傳輸與馬達延遲還要用延遲量測工具校正後填在這裡。</p>
+
+    <details>
+      <summary>沒有機器人？用本機 FakeKebbi 測試</summary>
+      <p class="hint">FakeKebbi 跑的是和 App 相同的接收器與播放器，只是把馬達指令印在下方。啟動後 IP 填 <code>127.0.0.1</code>。</p>
+      <div class="row">
+        <button id="btn-fake-start" class="secondary">啟動 FakeKebbi</button>
+        <button id="btn-fake-stop" class="secondary">關閉</button>
+        <span id="fake-state" class="muted"></span>
+      </div>
+      <pre id="fake-log" class="log small"></pre>
+    </details>
+  </section>
+
+  <!-- 4. 其他工具 -->
+  <section class="card" id="sec-tools">
+    <h2><span class="num">4</span>校正與同步工具</h2>
+    <p class="hint">這些工具的腳本放進 <code>pc/</code> 資料夾後就會自動啟用，會帶入上方的 Kebbi IP 和目前選的結果。</p>
+    <div id="tools"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
