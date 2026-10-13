@@ -153,8 +153,19 @@ public class MainActivity extends AppCompatActivity {
         //        負責 影片 → PoseFrame → PoseFeature）
         videoAnalyzer = new VideoAnalyzer(this, executorService);
 
-        // Step5：PC Offload —— 腳本播放器（馬達指令交給 RobotController）與 Wi-Fi 接收器
-        scriptPlayer = new DanceScriptPlayer(robotController::sendMotorCommand);
+        // Step5：PC Offload —— 腳本播放器（馬達指令與換臉都交給 RobotController）與 Wi-Fi 接收器
+        scriptPlayer = new DanceScriptPlayer(robotController::sendMotorCommand,
+                new DanceScriptPlayer.FaceSink() {
+                    @Override
+                    public boolean show(String face) {
+                        return robotController.showFace(face);
+                    }
+
+                    @Override
+                    public void reset() {
+                        robotController.resetFace();
+                    }
+                });
         scriptServer = new ScriptServer(ScriptServer.DEFAULT_PORT, scriptServerHandler);
 
         // Step6：設定影片選擇器

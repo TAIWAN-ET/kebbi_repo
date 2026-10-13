@@ -1,12 +1,14 @@
-"""一鍵產生 Kebbi 舞蹈腳本：影片 → landmark CSV → dance_script.json。
+"""一鍵產生 Kebbi 舞蹈腳本：影片 → landmark / 臉部 CSV → dance_script.json。
 
     python make_dance.py ..\\video_push\\dream_01.mp4
     python make_dance.py dream_01.mp4 --max-seconds 10 --out-dir out/dream_01
 
 流程：
 1. extract_pose.py：Python + MediaPipe 抽 33 點（normalized + world）
+   extract_face.py：MediaPipe Face Landmarker 抽臉部 blendshape（用姿態框頭；--no-face 可關掉）
 2. 編譯 App 內的純 Java 類別 + pc/java 的 DanceScriptGenerator（javac，只編不打包）
-3. 執行 DanceScriptGenerator：PoseAnalyzer → RobotMapper → DanceScriptBuilder → JSON
+3. 執行 DanceScriptGenerator：PoseAnalyzer → RobotMapper → DanceScriptBuilder，
+   FaceExpressionAnalyzer → FaceScriptBuilder → JSON
 
 產出的 dance_script.json 就是要送給 Kebbi 播放的檔案。
 """
@@ -33,11 +35,14 @@ SHARED_SOURCES = [
     "math/*.java",
     "io/*.java",
     "analysis/PoseAnalyzer.java",
+    "analysis/FaceExpressionAnalyzer.java",
     "robot/RobotMapper.java",
     "robot/RobotMotor.java",
     "robot/MotionPoseMap.java",
     "robot/DanceScriptBuilder.java",
     "robot/DanceScriptPlayer.java",
+    "robot/FaceScriptBuilder.java",
+    "robot/KebbiFaceMap.java",
     "net/*.java",
 ]
 
@@ -91,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--skip-extract", action="store_true",
                         help="reuse existing CSVs in --out-dir (only re-run mapping)")
+    parser.add_argument("--no-face", action="store_true",
+                        help="skip facial expression recognition (no face events in the script)")
     args = parser.parse_args(argv)
     # 子行程（javac / java）的輸出和這裡的 print 交錯時才不會亂序
     sys.stdout.reconfigure(line_buffering=True)
@@ -99,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     name = args.name or args.video.stem
     norm_csv = out_dir / "pose_landmarks.csv"
     world_csv = out_dir / "pose_world_landmarks.csv"
+    face_csv = out_dir / "face_blendshapes.csv"
     script_json = out_dir / "dance_script.json"
 
     # Step1：MediaPipe（最花時間；只調 RobotMapper 參數時可以 --skip-extract 跳過）
@@ -113,14 +121,27 @@ def main(argv: list[str] | None = None) -> int:
         if stats["detected"] == 0:
             sys.exit("影片裡沒有偵測到人。")
 
+    # Step1b：臉部表情（--skip-extract 時沿用舊的 CSV；沒有才跑，例如姿態是 extract_pose3d.py 產的）
+    if not args.no_face and not (args.skip_extract and face_csv.is_file()):
+        if not args.video.is_file():
+            sys.exit(f"找不到影片 {args.video}（不要表情請加 --no-face）")
+        from extract_face import extract as extract_face
+        print(f"[1/3] MediaPipe Face: {args.video}")
+        _, face_stats = extract_face(args.video, out_dir, args.interval, args.max_seconds, pose_csv=norm_csv)
+        print(f"      sampled={face_stats['sampled']} face={face_stats['detected']} "
+              f"(head crop {face_stats['head']}, full frame {face_stats['full']})")
+    elif not args.no_face:
+        print(f"[1/3] skip face extract, reuse {face_csv}")
+
     # Step2：編譯共用的純 Java 程式碼
     compile_java()
 
     # Step3：產生腳本
     print("[3/3] DanceScriptGenerator")
     world_arg = str(world_csv) if world_csv.is_file() else "-"
+    face_arg = str(face_csv) if not args.no_face and face_csv.is_file() else "-"
     subprocess.run([find_jdk_tool("java"), "-cp", str(BUILD_DIR), GENERATOR_CLASS,
-                    str(norm_csv), world_arg, str(script_json), name, str(args.interval)],
+                    str(norm_csv), world_arg, str(script_json), name, str(args.interval), face_arg],
                    check=True)
     return 0
 

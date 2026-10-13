@@ -37,6 +37,13 @@ public class DanceScript {
     public int skippedFrameCount;
     /** 依時間升冪排列的播放步驟。 */
     public List<Step> steps = new ArrayList<>();
+    /**
+     * 依時間升冪排列的換臉事件（臉部表情辨識的結果；沒有分析臉時是空的）。
+     *
+     * <p>和 {@link #steps} 分開存：表情變化遠比動作少，且不需要每一步都帶。
+     * 舊版播放器讀到這個欄位會直接忽略，所以格式版本不用升。
+     */
+    public List<FaceEvent> faces = new ArrayList<>();
 
     public DanceScript() {
     }
@@ -70,8 +77,8 @@ public class DanceScript {
      */
     public String describe() {
         return String.format(Locale.US,
-                "DanceScript v%d \"%s\": %d steps, %d cmds, %.1fs, interval=%dms, frames=%d (skipped %d)",
-                version, name, steps.size(), getCommandCount(), durationMs / 1000f,
+                "DanceScript v%d \"%s\": %d steps, %d cmds, %d faces, %.1fs, interval=%dms, frames=%d (skipped %d)",
+                version, name, steps.size(), getCommandCount(), faces.size(), durationMs / 1000f,
                 frameIntervalMs, sourceFrameCount, skippedFrameCount);
     }
 
@@ -100,6 +107,40 @@ public class DanceScript {
             this.timeMs = timeMs;
             this.event = event == null ? "" : event;
             this.commands = commands;
+        }
+    }
+
+    /**
+     * 換臉事件：在 {@link #timeMs} 讓 Kebbi 播放 {@link #face} 這張臉。
+     */
+    public static class FaceEvent {
+        /** 送出換臉指令的時間（毫秒，從舞蹈開始算），已扣掉臉部延遲的提前量。 */
+        public long timeMs;
+        /** 影片中這個表情開始出現的時間（毫秒），僅供除錯 / 網頁對照。 */
+        public long videoMs;
+        /** 辨識出的表情（{@code FaceExpression} 的名稱，例：HAPPY）。 */
+        public String expression = "";
+        /** Kebbi 臉部動畫名稱；空字串＝回到預設臉。 */
+        public String face = "";
+        /** 這段表情的平均分數 0~1（NEUTRAL 時為 0）。 */
+        public float score;
+
+        public FaceEvent() {
+        }
+
+        /**
+         * @param timeMs     送出時間（毫秒）
+         * @param videoMs    影片中表情出現的時間（毫秒）
+         * @param expression 表情名稱
+         * @param face       Kebbi 臉部動畫名稱
+         * @param score      平均分數
+         */
+        public FaceEvent(long timeMs, long videoMs, String expression, String face, float score) {
+            this.timeMs = timeMs;
+            this.videoMs = videoMs;
+            this.expression = expression == null ? "" : expression;
+            this.face = face == null ? "" : face;
+            this.score = score;
         }
     }
 }

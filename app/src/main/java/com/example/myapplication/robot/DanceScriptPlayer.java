@@ -3,6 +3,8 @@ package com.example.myapplication.robot;
 import com.example.myapplication.model.DanceScript;
 import com.example.myapplication.model.RobotCommand;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,7 +29,10 @@ import java.util.concurrent.Executors;
  *       落後時立刻補送，不跳步（每一步只列有變化的馬達，跳過就會漏掉目標角度）。</li>
  *   <li><b>安全夾位</b>：送出前再夾一次角度與速度，不是 RobotMapper 驅動的馬達一律拒送。
  *       腳本可能被手動改過，或來自比較舊的產生器，機器人端不能完全信任它。</li>
- *   <li><b>結束</b>：正常播完可選擇歸位；按停止則停在原地（歸位交給 Home 按鈕）。</li>
+ *   <li><b>換臉</b>：腳本的 {@link DanceScript#faces} 和馬達步驟用同一個時間軸送出（同一時間先換臉）；
+ *       沒給 {@link FaceSink} 時忽略。開頭之前的換臉事件只送最後一個。</li>
+ *   <li><b>結束</b>：正常播完可選擇歸位；按停止則停在原地（歸位交給 Home 按鈕）。
+ *       有換過臉的話，不論怎麼結束都把臉還原（臉部動畫會蓋住 App 畫面）。</li>
  * </ol>
  */
 public class DanceScriptPlayer {
@@ -39,6 +44,18 @@ public class DanceScriptPlayer {
          * @return 成功送出回傳 true
          */
         boolean send(RobotCommand cmd);
+    }
+
+    /** 把換臉指令交給機器人的臉（App 裡是 RobotController，PC 測試時印出來）。 */
+    public interface FaceSink {
+        /**
+         * @param face Kebbi 臉部動畫名稱；空字串＝回到預設臉
+         * @return 成功送出回傳 true
+         */
+        boolean show(String face);
+
+        /** 播放結束：停掉臉部動畫、把臉收起來。 */
+        void reset();
     }
 
     /** 播放進度回呼（在播放執行緒上呼叫，UI 端要自己切回主執行緒）。 */
@@ -74,6 +91,7 @@ public class DanceScriptPlayer {
     };
 
     private final MotorSink sink;
+    private final FaceSink faceSink;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile Thread worker;
     private volatile boolean playing;
@@ -83,7 +101,16 @@ public class DanceScriptPlayer {
      * @param sink 實際送出馬達指令的地方
      */
     public DanceScriptPlayer(MotorSink sink) {
+        this(sink, null);
+    }
+
+    /**
+     * @param sink     實際送出馬達指令的地方
+     * @param faceSink 實際換臉的地方；null 代表不播表情
+     */
+    public DanceScriptPlayer(MotorSink sink, FaceSink faceSink) {
         this.sink = sink;
+        this.faceSink = faceSink;
     }
 
     /**
@@ -132,9 +159,9 @@ public class DanceScriptPlayer {
 
     private void run(DanceScript script, boolean returnHome, Listener listener) {
         int total = script.steps.size();
-        int sentSteps = 0;
-        int rejected = 0;
-        long maxLateMs = 0L;
+        List<DanceScript.FaceEvent> faces = faceSink == null
+                ? Collections.<DanceScript.FaceEvent>emptyList() : script.faces;
+        RunStats stats = new RunStats();
         boolean completed = false;
         String error = null;
 
@@ -143,34 +170,52 @@ public class DanceScriptPlayer {
             if (stopRequested) {
                 return;
             }
-            // Step1：預備 —— 先擺出第一個姿勢，等機器人就位
+            // Step1：預備 —— 先擺出第一個姿勢、換上開頭的臉，等機器人就位
             DanceScript.Step first = script.steps.get(0);
-            rejected += sendStep(first);
-            sentSteps++;
+            long originMs = first.timeMs;
+            int faceIndex = 0;
+            DanceScript.FaceEvent openingFace = null;
+            while (faceIndex < faces.size() && faces.get(faceIndex).timeMs <= originMs) {
+                openingFace = faces.get(faceIndex++);
+            }
+            if (openingFace != null) {
+                sendFace(openingFace, stats);
+            }
+            stats.rejected += sendStep(first);
+            stats.sentSteps++;
             listener.onStep(0, total, first);
             Thread.sleep(PREROLL_MS);
 
-            // Step2：以第一步為零點，照絕對時間送出之後每一步
+            // Step2：以第一步為零點，照絕對時間送出之後每一步（以及在它之前到期的換臉）
             long startNanos = System.nanoTime();
-            long originMs = first.timeMs;
             for (int i = 1; i < total; i++) {
                 DanceScript.Step step = script.steps.get(i);
-                long dueMs = step.timeMs - originMs;
-                long waitMs = dueMs - elapsedMs(startNanos);
-                if (waitMs > 0) {
-                    Thread.sleep(waitMs);
-                } else {
-                    maxLateMs = Math.max(maxLateMs, -waitMs);
+                while (faceIndex < faces.size() && faces.get(faceIndex).timeMs <= step.timeMs) {
+                    DanceScript.FaceEvent face = faces.get(faceIndex++);
+                    waitUntil(face.timeMs - originMs, startNanos, stats);
+                    if (stopRequested) {
+                        break;
+                    }
+                    sendFace(face, stats);
                 }
+                waitUntil(step.timeMs - originMs, startNanos, stats);
                 if (stopRequested) {
                     break;
                 }
-                rejected += sendStep(step);
-                sentSteps++;
+                stats.rejected += sendStep(step);
+                stats.sentSteps++;
                 listener.onStep(i, total, step);
             }
 
-            // Step3：等最後一步的動作做完（腳本長度 - 最後一步時間）
+            // Step3：送完最後一步之後的換臉，並等最後一步的動作做完（腳本長度 - 最後一步時間）
+            while (!stopRequested && faceIndex < faces.size()
+                    && faces.get(faceIndex).timeMs < script.durationMs) {
+                DanceScript.FaceEvent face = faces.get(faceIndex++);
+                waitUntil(face.timeMs - originMs, startNanos, stats);
+                if (!stopRequested) {
+                    sendFace(face, stats);
+                }
+            }
             if (!stopRequested) {
                 long endWaitMs = (script.durationMs - originMs) - elapsedMs(startNanos);
                 if (endWaitMs > 0) {
@@ -194,14 +239,52 @@ public class DanceScriptPlayer {
             worker = null;
             // 清掉可能殘留的中斷旗標，executor 的下一個任務才不會一開始就被中斷
             Thread.interrupted();
+            if (stats.sentFaces + stats.rejectedFaces > 0) {
+                try {
+                    faceSink.reset();
+                } catch (RuntimeException e) {
+                    if (error == null) {
+                        error = e.toString();
+                    }
+                }
+            }
             String message = error != null
                     ? "Script playback error: " + error
-                    : String.format(Locale.US, "%s \"%s\": %d/%d steps, rejected cmds=%d, max late=%dms",
+                    : String.format(Locale.US,
+                            "%s \"%s\": %d/%d steps, rejected cmds=%d, faces=%d (rejected %d), max late=%dms",
                             completed ? "Finished" : "Stopped", script.name,
-                            sentSteps, total, rejected, maxLateMs);
+                            stats.sentSteps, total, stats.rejected,
+                            stats.sentFaces, stats.rejectedFaces, stats.maxLateMs);
             playing = false;
             listener.onFinished(completed, message);
         }
+    }
+
+    /** 睡到「開始時間 + dueMs」；已經過了就記錄落後多少，立刻返回。 */
+    private static void waitUntil(long dueMs, long startNanos, RunStats stats) throws InterruptedException {
+        long waitMs = dueMs - elapsedMs(startNanos);
+        if (waitMs > 0) {
+            Thread.sleep(waitMs);
+        } else {
+            stats.maxLateMs = Math.max(stats.maxLateMs, -waitMs);
+        }
+    }
+
+    private void sendFace(DanceScript.FaceEvent face, RunStats stats) {
+        if (faceSink.show(face.face)) {
+            stats.sentFaces++;
+        } else {
+            stats.rejectedFaces++;
+        }
+    }
+
+    /** 一次播放的統計（只在播放執行緒上讀寫）。 */
+    private static final class RunStats {
+        int sentSteps;
+        int rejected;
+        int sentFaces;
+        int rejectedFaces;
+        long maxLateMs;
     }
 
     /**

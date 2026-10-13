@@ -34,8 +34,17 @@ import java.util.Map;
  *   "skippedFrameCount": 3,
  *   "steps": [
  *     {"t": 0, "event": "", "cmds": [{"motor": 1, "deg": 0.0, "speed": 60.0}]}
+ *   ],
+ *   "faces": [
+ *     {"t": 1800, "at": 2000, "expr": "HAPPY", "face": "TTS_JoyA", "score": 0.72}
  *   ]
  * }
+ * </pre>
+ *
+ * <p>{@code faces} 是選用欄位（臉部表情）：{@code t} 是送出時間、{@code at} 是影片中表情出現的時間，
+ * {@code face} 空字串代表回到預設臉。舊檔沒有這個欄位，讀進來就是空清單；
+ * 舊版播放器也會忽略它，所以格式版本維持 1。
+ * <pre>
  * </pre>
  *
  * <p>不負責什麼：不做映射、不播放、不做網路傳輸。
@@ -119,6 +128,19 @@ public final class DanceScriptIO {
             sb.append("\n");
         }
 
+        sb.append("  ],\n");
+
+        // Step3：換臉事件，每個一行
+        sb.append("  \"faces\": [\n");
+        for (int i = 0; i < script.faces.size(); i++) {
+            DanceScript.FaceEvent face = script.faces.get(i);
+            sb.append(String.format(Locale.US, "    {\"t\": %d, \"at\": %d, \"expr\": %s, \"face\": %s, \"score\": %.2f}",
+                    face.timeMs, face.videoMs, quote(face.expression), quote(face.face), face.score));
+            if (i < script.faces.size() - 1) {
+                sb.append(",");
+            }
+            sb.append("\n");
+        }
         sb.append("  ]\n");
         sb.append("}\n");
         return sb.toString();
@@ -188,6 +210,25 @@ public final class DanceScriptIO {
                         asLong(stepMap.get("t")),
                         event instanceof String ? (String) event : "",
                         commands));
+            }
+        }
+
+        // Step4：換臉事件（選用欄位）
+        Object facesObj = root.get("faces");
+        if (facesObj instanceof List) {
+            for (Object faceObj : (List<Object>) facesObj) {
+                if (!(faceObj instanceof Map)) {
+                    continue;
+                }
+                Map<String, Object> faceMap = (Map<String, Object>) faceObj;
+                Object expr = faceMap.get("expr");
+                Object face = faceMap.get("face");
+                script.faces.add(new DanceScript.FaceEvent(
+                        asLong(faceMap.get("t")),
+                        asLong(faceMap.get("at")),
+                        expr instanceof String ? (String) expr : "",
+                        face instanceof String ? (String) face : "",
+                        (float) asDouble(faceMap.get("score"))));
             }
         }
         return script;
