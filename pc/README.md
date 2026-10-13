@@ -26,6 +26,24 @@ py -3.12 -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 ```
 
+## 網頁操作介面（建議）
+
+不想記指令的話，用網頁介面就能完成全部流程：選／上傳影片 → 分析 → 預覽（影片和馬達角度、換臉同步顯示）→ 輸入 Kebbi IP → 上傳並播放。
+
+```bash
+cd pc
+.venv/Scripts/python -m pip install -r webui/requirements.txt   # 只多裝 Flask
+.venv/Scripts/python webui/app.py                               # 自動開啟 http://127.0.0.1:8800
+```
+
+- 影片放在 `video_push/`，或直接在網頁上傳（存到 `pc/uploads/`）
+- 網頁只是包裝上面這些指令（`make_dance.py`、`extract_pose3d.py`、`sim/pybullet_sim.py`、`send_script.py`），執行紀錄會即時顯示；參數意義與命令列相同
+- 預覽影片要瀏覽器能播的格式（mp4 H.264 / webm）
+- 「上傳並播放」時可同時播放影片，延後時間預設 1500 ms（播放器就位時間），之後依延遲量測結果調整
+- 沒有機器人：展開「用本機 FakeKebbi 測試」，啟動後 IP 填 `127.0.0.1`
+- 「校正與同步工具」：延遲量測（`measure_latency.py`）、手臂軸向檢查（`check_arm_axes.py`）、影片同步播放（`sync_play.py`）
+  目前還沒放進 repo，檔案放進 `pc/` 就會自動啟用；參數對應在 `webui/app.py` 的 `EXTRA_TOOLS`
+
 ## 產生腳本
 
 ```bash
