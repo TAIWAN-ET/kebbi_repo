@@ -44,7 +44,8 @@ import java.util.Locale;
  * <b>同一個區網內任何人都能讓機器人動</b>，所以只在需要時才打開（UI 上的開關）。
  *
  * <p>純 Java（java.net），不依賴 Android，也不需要額外函式庫；PC 上可以直接測。
- * 一次只處理一個連線 —— 指令很少、很小，不需要並行。
+ * 連線各自在背景執行緒處理（最多 {@link #WORKERS} 個）：/motor-test 會佔住幾秒，
+ * 這段時間 /stop 一定要能馬上進來。
  */
 public class ScriptServer {
 
@@ -53,6 +54,9 @@ public class ScriptServer {
 
     /** 腳本大小上限：3 分鐘的舞約 200KB，8MB 已經很寬鬆，避免被塞爆記憶體。 */
     private static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+    /** 同時處理的連線數上限。 */
+    private static final int WORKERS = 4;
 
     /** 單一連線讀取逾時（毫秒）。 */
     private static final int SOCKET_TIMEOUT_MS = 10_000;
@@ -98,6 +102,7 @@ public class ScriptServer {
     private final Handler handler;
     private volatile ServerSocket serverSocket;
     private volatile Thread thread;
+    private volatile java.util.concurrent.ExecutorService workers;
 
     /**
      * @param port    監聽埠號（0 表示由系統挑一個，測試用）
@@ -119,7 +124,13 @@ public class ScriptServer {
         }
         ServerSocket socket = new ServerSocket(port);
         serverSocket = socket;
-        thread = new Thread(() -> acceptLoop(socket), "ScriptServer");
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(WORKERS, r -> {
+            Thread t = new Thread(r, "ScriptServer-worker");
+            t.setDaemon(true);
+            return t;
+        });
+        workers = pool;
+        thread = new Thread(() -> acceptLoop(socket, pool), "ScriptServer");
         thread.setDaemon(true);
         thread.start();
     }
@@ -135,6 +146,11 @@ public class ScriptServer {
             }
         }
         thread = null;
+        java.util.concurrent.ExecutorService pool = workers;
+        workers = null;
+        if (pool != null) {
+            pool.shutdown();
+        }
     }
 
     /** @return 是否正在監聽 */
@@ -171,14 +187,37 @@ public class ScriptServer {
         return result;
     }
 
-    private void acceptLoop(ServerSocket socket) {
+    private void acceptLoop(ServerSocket socket, java.util.concurrent.ExecutorService pool) {
         while (!socket.isClosed()) {
-            try (Socket client = socket.accept()) {
-                client.setSoTimeout(SOCKET_TIMEOUT_MS);
-                handle(client);
+            Socket client;
+            try {
+                client = socket.accept();
             } catch (IOException e) {
-                // close() 會讓 accept 丟例外，屬於正常結束；單一連線出錯則繼續服務下一個
+                continue;  // close() 會讓 accept 丟例外，迴圈條件會結束它
             }
+            try {
+                pool.execute(() -> serve(client));
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                closeQuietly(client);  // 正在關閉
+            }
+        }
+    }
+
+    private void serve(Socket client) {
+        try {
+            client.setSoTimeout(SOCKET_TIMEOUT_MS);
+            handle(client);
+        } catch (IOException e) {
+            // 單一連線出錯不影響其他連線
+        } finally {
+            closeQuietly(client);
+        }
+    }
+
+    private static void closeQuietly(Socket client) {
+        try {
+            client.close();
+        } catch (IOException ignored) {
         }
     }
 

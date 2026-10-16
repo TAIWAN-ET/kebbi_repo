@@ -80,7 +80,10 @@ public class RobotController {
     private final ApiManager apiManager;
     private final NuwaRobotManager robotManager;
     private final NuwaVoiceManager voiceManager;
-    private final ExecutorService executorService;
+    // 不是 final：emergencyStop() 會把跑到一半的測試整個丟掉，換一個新的執行緒池
+    private volatile ExecutorService executorService;
+    /** measureMotorResponse 的輪詢迴圈看這個旗標提早結束（它跑在 ScriptServer 的執行緒上）。 */
+    private volatile boolean motorTestAbort;
     /** 跳舞播放時追蹤的馬達範圍。 */
     private List<MotorExtremes> extremes;
     /**
@@ -174,6 +177,56 @@ public class RobotController {
         }
         if (voiceManager != null && voiceManager.isInit()) {
             voiceManager.stopTTS();
+        }
+    }
+
+    /**
+     * 緊急停止：馬上停在目前的姿勢，不等上一個動作做完。
+     *
+     * <p>ctlMotor 下的是「目標角度」，馬達會一路轉到目標才停；只停止送新指令（舊版的停止）
+     * 的話，慢速的那一步還是會做完。所以這裡：
+     * <ol>
+     *   <li>停掉內建 motion / TTS；</li>
+     *   <li>中斷跑到一半的極限測試、歸位（丟掉整個執行緒池，換新的）、馬達延遲量測；</li>
+     *   <li>讀每顆馬達現在的角度，把目標改成「現在的位置」，用最快速度送出 —— 馬達就停在原地。</li>
+     * </ol>
+     * 立刻返回，第 3 步在背景執行緒做（AIDL 讀角度是同步呼叫，不放在 UI 執行緒）。
+     */
+    public void emergencyStop() {
+        stopAll();
+        motorTestAbort = true;
+        ExecutorService old = executorService;
+        executorService = Executors.newSingleThreadExecutor();
+        old.shutdownNow();
+        Thread freezer = new Thread(() -> {
+            try {
+                // 等被中斷的任務真的結束，免得它在凍結之後又送出一個指令
+                old.awaitTermination(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            holdCurrentPosition();
+        }, "EmergencyStop");
+        freezer.start();
+    }
+
+    /** 把每顆馬達的目標改成目前角度（最快速度），讓轉到一半的馬達停在原地。 */
+    public void holdCurrentPosition() {
+        NuwaRobotAPI api = isReady() ? NuwaRobotAPI.getInst() : null;
+        if (api == null) {
+            return;
+        }
+        for (int motorId : TRACKED_MOTORS) {
+            try {
+                float deg = api.getMotorPresentPositionInDegree(motorId);
+                if (Float.isNaN(deg)) {
+                    continue;
+                }
+                api.ctlMotor(motorId, deg, RobotMapper.maxSpeedFor(motorId));
+                lastCommandedDegree.put(motorId, deg);
+            } catch (Exception ignored) {
+                // 單顆讀不到就跳過，其他馬達照樣停
+            }
         }
     }
 
@@ -286,10 +339,16 @@ public class RobotController {
                 results.append(">> 偵測到卡住（連續 3 步實際角度幾乎沒動）\n");
             }
 
+            if (Thread.currentThread().isInterrupted()) {
+                return;  // 被 emergencyStop 中斷：不要再送任何馬達指令
+            }
             // Step2：測試頭部 pitch（點頭，NECK_Y）：0 -> +30，每次 +5
             results.append("-- NECK_Y (pitch) --\n");
             sweepMotor(api, NuwaRobotAPI.MOTOR_NECK_Y, HEAD_PITCH_MAX_DEG, results, onStatus);
 
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
             // Step3：回到原點
             api.ctlMotor(NuwaRobotAPI.MOTOR_NECK_Y, 0f, MOTOR_SPEED_DEG_PER_SEC);
             api.ctlMotor(NuwaRobotAPI.MOTOR_NECK_Z, 0f, MOTOR_SPEED_DEG_PER_SEC);
@@ -679,6 +738,7 @@ public class RobotController {
         final float reachThresholdDeg = 2f;
         final long pollMs = 10L;
 
+        motorTestAbort = false;
         float startDeg = api.getMotorPresentPositionInDegree(motorId);
         long expectedMs = travelMs(Math.abs(safe.degree - startDeg), safe.speedDegPerSec);
         long timeoutMs = expectedMs * 2 + 2000L;
@@ -695,7 +755,7 @@ public class RobotController {
         try {
             while (true) {
                 long ms = (System.nanoTime() - t0) / 1_000_000L;
-                if (ms > timeoutMs) {
+                if (ms > timeoutMs || motorTestAbort) {
                     break;
                 }
                 float deg = api.getMotorPresentPositionInDegree(motorId);

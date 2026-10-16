@@ -843,7 +843,8 @@ public class MainActivity extends AppCompatActivity {
             scriptPlayer.stop();
         }
         if (robotController != null) {
-            robotController.stopAll();
+            // 不只停止送新指令：連轉到一半的馬達也停在原地
+            robotController.emergencyStop();
         }
         statusText.setText("Stopped");
     }
