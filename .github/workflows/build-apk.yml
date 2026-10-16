@@ -5,6 +5,9 @@ on:
     branches: [ "claude/build-apk-*", "claude/project-thread-*" ]
   workflow_dispatch:
 
+permissions:
+  contents: write   # 上傳 APK 到 kebbi-latest release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,3 +25,15 @@ jobs:
         with:
           name: kebbi-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+      # 固定網址給 Kebbi「從網址安裝」：每次編譯覆蓋同一個 release 的 kebbi.apk
+      # https://github.com/<owner>/<repo>/releases/download/kebbi-latest/kebbi.apk
+      - name: Publish to kebbi-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk kebbi.apk
+          gh release view kebbi-latest >/dev/null 2>&1 || \
+            gh release create kebbi-latest --prerelease --title "Kebbi APK（最新編譯）" \
+              --notes "Kebbi 上用「從網址安裝」：https://github.com/${{ github.repository }}/releases/download/kebbi-latest/kebbi.apk" \
+              --target "${{ github.sha }}"
+          gh release upload kebbi-latest kebbi.apk --clobber
