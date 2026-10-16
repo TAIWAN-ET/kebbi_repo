@@ -7,6 +7,10 @@
     python kebbi_link.py play     [IP] [--delay 3]  # 重播已載入的腳本
     python kebbi_link.py stop     [IP]
     python kebbi_link.py home     [IP]
+    python kebbi_link.py motions  [IP]              # 內建 motion 清單
+    python kebbi_link.py motion   [IP] --name 666_DA_Hit --out out/motion.json   # 播一個並取樣馬達角度
+    python kebbi_link.py play     [IP] --delay 3 --trace   # 播放時記錄馬達角度，之後用 trace 拿回來
+    python kebbi_link.py trace    [IP] --out out/trace.json
 
 IP 可以省略：省略時自動搜尋（只有一台時直接用它）。
 
@@ -180,13 +184,27 @@ class KebbiLink:
     def upload(self, script: bytes) -> dict:
         return self.request("POST", "/script", script, timeout=30)
 
-    def play_at(self, pc_start_time: float) -> dict:
-        """在電腦時間 pc_start_time（time.time()）對上影片 t=0 開始播放。"""
+    def play_at(self, pc_start_time: float, trace: bool = False) -> dict:
+        """在電腦時間 pc_start_time（time.time()）對上影片 t=0 開始播放。trace＝同時記錄馬達角度。"""
         clock = self.clock or self.sync_clock()
-        return self.request("POST", f"/play?at={clock.to_kebbi_ms(pc_start_time)}")
+        extra = "&trace=1" if trace else ""
+        return self.request("POST", f"/play?at={clock.to_kebbi_ms(pc_start_time)}{extra}")
 
-    def play_now(self) -> dict:
-        return self.request("POST", "/play")
+    def play_now(self, trace: bool = False) -> dict:
+        return self.request("POST", "/play?trace=1" if trace else "/play")
+
+    def motions(self) -> list[str]:
+        return self.request("GET", "/motions")["motions"]
+
+    def play_motion(self, name: str) -> dict:
+        """播一個內建 motion，回傳 {durationMs, motors, samples: [[ms, d1..d10]]}（播完才回來）。"""
+        from urllib.parse import quote
+        return self.request("POST", f"/motion?name={quote(name)}", timeout=40)
+
+    def trace(self, since_kebbi_ms: int | None = None) -> dict:
+        """腳本播放時記錄的角度：samples [[kebbiMs, d1..d10]]；用 self.clock.to_pc_time() 換成電腦時間。"""
+        path = "/trace" if since_kebbi_ms is None else f"/trace?since={since_kebbi_ms}"
+        return self.request("GET", path, timeout=30)
 
     def stop(self) -> dict:
         return self.request("POST", "/stop")
@@ -204,12 +222,16 @@ def _print(obj: object) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PC <-> Kebbi Wi-Fi link")
-    parser.add_argument("command", choices=["find", "status", "sync", "send", "play", "stop", "home"])
+    parser.add_argument("command", choices=["find", "status", "sync", "send", "play", "stop", "home",
+                                            "motions", "motion", "trace"])
     parser.add_argument("args", nargs="*", help="[IP] [dance_script.json]")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--play", action="store_true", help="send: play after upload")
     parser.add_argument("--delay", type=float, default=None,
                         help="play: start N seconds from now on a synced clock (default: robot decides)")
+    parser.add_argument("--trace", action="store_true", help="play/send: record motor angles while playing")
+    parser.add_argument("--name", help="motion: built-in motion name")
+    parser.add_argument("--out", type=Path, help="motion / trace: save the JSON here")
     args = parser.parse_args(argv)
 
     if args.command == "find":
@@ -242,6 +264,26 @@ def main(argv: list[str] | None = None) -> int:
             _print(link.stop())
         elif args.command == "home":
             _print(link.home())
+        elif args.command == "motions":
+            names = link.motions()
+            print("\n".join(names))
+            print(f"共 {len(names)} 個", file=sys.stderr)
+        elif args.command in ("motion", "trace"):
+            if args.command == "motion":
+                if not args.name:
+                    parser.error("motion 需要 --name（名稱用 motions 查）")
+                result = link.play_motion(args.name)
+                print(f"{args.name}: 動作時間 {result.get('durationMs')} ms，取樣 {len(result['samples'])} 筆",
+                      file=sys.stderr)
+            else:
+                result = link.trace()
+                print(f"軌跡 {len(result['samples'])} 筆（記錄中：{result.get('running')}）", file=sys.stderr)
+            if args.out:
+                args.out.parent.mkdir(parents=True, exist_ok=True)
+                args.out.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+                print(f"存到 {args.out}", file=sys.stderr)
+            else:
+                _print({k: v for k, v in result.items() if k != "samples"})
         else:
             if args.command == "send":
                 if script is None or not script.is_file():
@@ -251,9 +293,9 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
             if args.delay is not None:
                 link.sync_clock()
-                _print(link.play_at(time.time() + args.delay))
+                _print(link.play_at(time.time() + args.delay, trace=args.trace))
             else:
-                _print(link.play_now())
+                _print(link.play_now(trace=args.trace))
     except KebbiError as e:
         print(f"錯誤：{e}", file=sys.stderr)
         return 1

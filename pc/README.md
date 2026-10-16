@@ -144,6 +144,11 @@ Kebbi 端 API（`ScriptServer`，HTTP 8765，全部回 JSON）：
 | POST | `/play[?at=MS]` | 播放已載入的腳本；指定 `at` 卻無法照時間開始時回 409 |
 | POST | `/stop`、`/home` | 停止、歸位 |
 | POST | `/motor-test?motor=&deg=&speed=` | 轉一顆馬達，機器人端每 10ms 讀角度，回傳開始動 / 到位時間 |
+| GET | `/motions` | 內建 motion 清單 |
+| POST | `/motion?name=` | 播一個內建 motion，每 20ms 取樣 10 顆馬達角度，播完回傳 `samples [[ms, d1..d10]]` |
+| GET | `/trace[?since=MS]` | `/play`、`/script` 加 `trace=1` 時記錄的馬達角度 `samples [[kebbiMs, d1..d10]]` |
+
+`/motor-test` 和 `/motion` 一次只跑一個（同時再送回 409）；`/stop` 隨時都能進來，會把馬達停在當下角度、中斷量測。
 
 **沒有機器人時測試**：`FakeKebbi` 跑的是和 App 完全相同的接收器與播放器，只是把馬達指令印出來：
 

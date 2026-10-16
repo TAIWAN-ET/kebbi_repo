@@ -90,7 +90,7 @@ public final class FakeKebbi {
             }
 
             @Override
-            public String onScript(DanceScript script, boolean play, long startAtMs) {
+            public String onScript(DanceScript script, boolean play, long startAtMs, boolean trace) {
                 loaded[0] = script;
                 String message = "Received " + script.describe();
                 System.out.println(message);
@@ -98,8 +98,33 @@ public final class FakeKebbi {
             }
 
             @Override
-            public String onPlay(long startAtMs) {
+            public String onPlay(long startAtMs, boolean trace) {
                 return play(startAtMs);
+            }
+
+            @Override
+            public String motionsJson() {
+                return "{\"ok\": true, \"count\": 2, \"motions\": [\"666_DA_Fake1\", \"666_DA_Fake2\"]}";
+            }
+
+            @Override
+            public String onMotion(String name) {
+                // 假的 motion：M1 用 1 秒從 0 轉到 20 度，取樣 20ms
+                StringBuilder sb = new StringBuilder("{\"ok\": true, \"fake\": true, \"name\": "
+                        + ScriptServer.quote(name) + ", \"durationMs\": 1000, \"reportedDuration\": 1.0,"
+                        + " \"motors\": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], \"samples\": [");
+                for (int ms = 0; ms <= 1000; ms += 20) {
+                    sb.append(ms == 0 ? "" : ", ").append('[').append(ms)
+                            .append(String.format(Locale.US, ", %.1f", ms / 50f))
+                            .append(", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]");
+                }
+                return sb.append("]}").toString();
+            }
+
+            @Override
+            public String traceJson(long sinceMs) {
+                return "{\"ok\": true, \"fake\": true, \"running\": false, \"intervalMs\": 20,"
+                        + " \"motors\": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], \"samples\": []}";
             }
 
             @Override

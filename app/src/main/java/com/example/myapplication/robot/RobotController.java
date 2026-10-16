@@ -789,6 +789,244 @@ public class RobotController {
                 firstMoveMs, reachMs, expectedMs, samples);
     }
 
+    // ------------------------------------------------------------------
+    // 實機量測：內建 motion 取樣、腳本播放時的角度軌跡（給 PC 端和模擬對照）
+    // ------------------------------------------------------------------
+
+    /** 取樣間隔（毫秒）。一次讀 10 顆馬達是 10 次同步 AIDL，實際間隔可能比這長，看回傳的時間戳。 */
+    private static final long SAMPLE_INTERVAL_MS = 20L;
+    /** 內建 motion 最長取樣多久（毫秒）。 */
+    private static final long MOTION_SAMPLE_TIMEOUT_MS = 30_000L;
+    /** 軌跡最多存幾筆（約 10 分鐘），避免忘了停把記憶體吃光。 */
+    private static final int MAX_TRACE_ROWS = 30_000;
+
+    private final Object traceLock = new Object();
+    private final List<float[]> traceRows = new ArrayList<>();
+    private volatile Thread traceThread;
+
+    /** @return 每顆馬達（{@link #TRACKED_MOTORS} 的順序，id 1~10）的 id，JSON 陣列字串 */
+    public static String trackedMotorsJson() {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < TRACKED_MOTORS.length; i++) {
+            sb.append(i == 0 ? "" : ", ").append(TRACKED_MOTORS[i]);
+        }
+        return sb.append(']').toString();
+    }
+
+    /** 讀一列：[時間(ms，nanoTime/1e6), 10 顆馬達角度]。讀不到的馬達填 NaN。 */
+    private static float[] readRow(NuwaRobotAPI api, long ms) {
+        float[] row = new float[TRACKED_MOTORS.length + 1];
+        row[0] = ms;
+        for (int i = 0; i < TRACKED_MOTORS.length; i++) {
+            try {
+                row[i + 1] = api.getMotorPresentPositionInDegree(TRACKED_MOTORS[i]);
+            } catch (Exception e) {
+                row[i + 1] = Float.NaN;
+            }
+        }
+        return row;
+    }
+
+    private static void appendRow(StringBuilder sb, float[] row, long originMs) {
+        sb.append('[').append((long) row[0] - originMs);
+        for (int i = 1; i < row.length; i++) {
+            sb.append(", ");
+            sb.append(Float.isNaN(row[i]) ? "null" : String.format(Locale.US, "%.1f", row[i]));
+        }
+        sb.append(']');
+    }
+
+    private static long clockMs() {
+        return System.nanoTime() / 1_000_000L;
+    }
+
+    /**
+     * 播放一個內建 motion，播放期間每 {@link #SAMPLE_INTERVAL_MS} 讀一次 10 顆馬達角度，播完回傳。
+     *
+     * <p>結束判斷（SDK 的播完回呼要註冊一整個 RobotEventListener，這裡用輪詢）：
+     * 動過之後連續 {@link #STILL_MS} 毫秒所有馬達都不動，或超過 SDK 報的總長 + 1 秒，或 30 秒上限。
+     * 會阻塞呼叫的執行緒（ScriptServer 的背景執行緒）；emergencyStop() 可以中斷。
+     *
+     * @return JSON：name、durationMs（從下指令到最後一次有動）、reportedDuration（SDK 的 motionTotalDuration 原始值）、
+     *         motors、samples [[ms, d1..d10]]（ms 從下指令起算）
+     */
+    public String playMotionAndSample(String name) {
+        NuwaRobotAPI api = isReady() ? NuwaRobotAPI.getInst() : null;
+        if (api == null) {
+            return "{\"ok\": false, \"message\": \"Nuwa robot SDK is not ready\"}";
+        }
+        List<String> motions = getMotionList();
+        if (motions == null || !motions.contains(name)) {
+            return "{\"ok\": false, \"message\": " + quoteJson("unknown motion: " + name) + "}";
+        }
+        motorTestAbort = false;
+        List<float[]> rows = new ArrayList<>();
+        float[] start = readRow(api, clockMs());
+        long t0 = clockMs();
+        robotManager.motionPlay(name, false);
+        float reported = Float.NaN;
+        long lastMoveMs = -1L;
+        float[] prev = start;
+        try {
+            while (!motorTestAbort) {
+                long ms = clockMs() - t0;
+                if (ms > MOTION_SAMPLE_TIMEOUT_MS) {
+                    break;
+                }
+                float[] row = readRow(api, clockMs());
+                rows.add(row);
+                if (moved(prev, row)) {
+                    lastMoveMs = ms;
+                }
+                prev = row;
+                if (Float.isNaN(reported)) {
+                    try {
+                        float d = robotManager.motionTotalDuration();
+                        if (d > 0f) {
+                            reported = d;
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                // 單位不確定（秒或毫秒），兩種都當上限看：取比較大的那個解讀
+                long reportedMs = Float.isNaN(reported) ? -1L
+                        : (long) (reported < 1000f ? reported * 1000f : reported);
+                boolean stillLongEnough = lastMoveMs >= 0 && ms - lastMoveMs > STILL_MS;
+                boolean pastReported = reportedMs > 0 && ms > reportedMs + 1000L;
+                boolean neverMoved = lastMoveMs < 0 && ms > 5000L;  // 只有臉部 / 聲音的 motion
+                if (stillLongEnough || pastReported || neverMoved) {
+                    break;
+                }
+                Thread.sleep(SAMPLE_INTERVAL_MS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"ok\": true, \"name\": ").append(quoteJson(name))
+                .append(", \"aborted\": ").append(motorTestAbort)
+                .append(", \"durationMs\": ").append(lastMoveMs)
+                .append(", \"reportedDuration\": ").append(Float.isNaN(reported) ? "null" : String.valueOf(reported))
+                .append(", \"motors\": ").append(trackedMotorsJson())
+                .append(", \"startDeg\": ");
+        appendRow(sb, start, (long) start[0]);
+        sb.append(", \"samples\": [");
+        for (int i = 0; i < rows.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            appendRow(sb, rows.get(i), t0);
+        }
+        return sb.append("]}").toString();
+    }
+
+    /** 動過之後連續多久不動算播完（毫秒）。 */
+    private static final long STILL_MS = 800L;
+
+    private static boolean moved(float[] a, float[] b) {
+        for (int i = 1; i < a.length; i++) {
+            if (!Float.isNaN(a[i]) && !Float.isNaN(b[i]) && Math.abs(a[i] - b[i]) >= 0.5f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 開始記錄角度軌跡（清掉上一次的）。已經在記錄就什麼都不做。 */
+    public void startTrace() {
+        NuwaRobotAPI api = isReady() ? NuwaRobotAPI.getInst() : null;
+        if (api == null || traceThread != null) {
+            return;
+        }
+        synchronized (traceLock) {
+            traceRows.clear();
+        }
+        Thread t = new Thread(() -> {
+            try {
+                while (traceThread == Thread.currentThread()) {
+                    float[] row = readRow(api, clockMs());
+                    synchronized (traceLock) {
+                        if (traceRows.size() >= MAX_TRACE_ROWS) {
+                            break;
+                        }
+                        traceRows.add(row);
+                    }
+                    Thread.sleep(SAMPLE_INTERVAL_MS);
+                }
+            } catch (InterruptedException ignored) {
+            } finally {
+                if (traceThread == Thread.currentThread()) {
+                    traceThread = null;
+                }
+            }
+        }, "MotorTrace");
+        traceThread = t;
+        t.start();
+    }
+
+    /** 停止記錄（資料保留到下一次 startTrace）。 */
+    public void stopTrace() {
+        Thread t = traceThread;
+        traceThread = null;
+        if (t != null) {
+            t.interrupt();
+        }
+    }
+
+    /**
+     * @param sinceMs 只回傳時間（Kebbi 時鐘）大於它的列；Long.MIN_VALUE＝全部。電腦端可以邊播邊拉。
+     * @return JSON：running、motors、samples [[kebbiMs, d1..d10]]
+     */
+    public String traceJson(long sinceMs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"ok\": true, \"running\": ").append(traceThread != null)
+                .append(", \"intervalMs\": ").append(SAMPLE_INTERVAL_MS)
+                .append(", \"motors\": ").append(trackedMotorsJson())
+                .append(", \"samples\": [");
+        boolean first = true;
+        synchronized (traceLock) {
+            for (float[] row : traceRows) {
+                if ((long) row[0] <= sinceMs) {
+                    continue;
+                }
+                if (!first) {
+                    sb.append(", ");
+                }
+                first = false;
+                appendRow(sb, row, 0L);
+            }
+        }
+        return sb.append("]}").toString();
+    }
+
+    private static String quoteJson(String text) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20) {
+                sb.append(String.format(Locale.US, "\\u%04x", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    /** @return 內建 motion 清單 JSON：{"ok":true,"motions":[...]} */
+    public String motionsJson() {
+        List<String> motions = isReady() ? getMotionList() : null;
+        if (motions == null) {
+            return "{\"ok\": false, \"message\": \"Nuwa robot SDK is not ready\"}";
+        }
+        StringBuilder sb = new StringBuilder("{\"ok\": true, \"count\": " + motions.size() + ", \"motions\": [");
+        for (int i = 0; i < motions.size(); i++) {
+            sb.append(i == 0 ? "" : ", ").append(quoteJson(motions.get(i)));
+        }
+        return sb.append("]}").toString();
+    }
+
     /**
      * 估算馬達轉動需要的時間。
      *

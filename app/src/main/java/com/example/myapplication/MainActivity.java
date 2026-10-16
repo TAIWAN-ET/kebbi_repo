@@ -404,6 +404,30 @@ public class MainActivity extends AppCompatActivity {
         throw new IllegalStateException(reason);
     }
 
+    /**
+     * 播放；trace 時先開始記錄馬達角度（預備動作也記到），沒開始播就停掉記錄。
+     * 播完再多記 {@link #TRACE_TAIL_MS} 才停（看最後一步有沒有到位）。
+     */
+    private String playWithOptionalTrace(long startAtMs, boolean trace) {
+        if (!trace) {
+            return startScriptPlayback(startAtMs);
+        }
+        robotController.startTrace();
+        try {
+            String message = startScriptPlayback(startAtMs);
+            if (!scriptPlayer.isPlaying()) {
+                robotController.stopTrace();
+            }
+            return message + " (tracing motors)";
+        } catch (RuntimeException e) {
+            robotController.stopTrace();
+            throw e;
+        }
+    }
+
+    /** 播完之後軌跡再多記多久（毫秒）。 */
+    private static final long TRACE_TAIL_MS = 1500L;
+
     /** 腳本播放進度 → 畫面。 */
     private final DanceScriptPlayer.Listener scriptListener = new DanceScriptPlayer.Listener() {
         @Override
@@ -417,6 +441,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onFinished(boolean completed, String message) {
+            timerHandler.postDelayed(robotController::stopTrace, TRACE_TAIL_MS);
             runOnUiThread(() -> {
                 stopTimer();
                 statusText.setText(message);
@@ -509,13 +534,14 @@ public class MainActivity extends AppCompatActivity {
     /** ScriptServer 的指令處理（在 ScriptServer 的背景執行緒上呼叫）。 */
     private final ScriptServer.Handler scriptServerHandler = new ScriptServer.Handler() {
         @Override
-        public String onScript(DanceScript script, boolean play, long startAtMs) throws Exception {
+        public String onScript(DanceScript script, boolean play, long startAtMs, boolean trace)
+                throws Exception {
             // 存檔：之後按「播放腳本」按鈕也能重播同一份
             DanceScriptIO.write(new File(getExternalFilesDir(null), DANCE_SCRIPT_FILE), script);
             loadedScript = script;
             String message = "Received " + script.describe();
             if (play) {
-                message += "\n" + startScriptPlayback(startAtMs);
+                message += "\n" + playWithOptionalTrace(startAtMs, trace);
             }
             final String shown = message;
             runOnUiThread(() -> statusText.setText(shown));
@@ -523,8 +549,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public String onPlay(long startAtMs) {
-            String message = startScriptPlayback(startAtMs);
+        public String onPlay(long startAtMs, boolean trace) {
+            String message = playWithOptionalTrace(startAtMs, trace);
             runOnUiThread(() -> statusText.setText(message));
             return message;
         }
@@ -540,6 +566,27 @@ public class MainActivity extends AppCompatActivity {
             scriptPlayer.stop();
             robotController.home(statusListener);
             return "Homing";
+        }
+
+        @Override
+        public String motionsJson() {
+            return robotController.motionsJson();
+        }
+
+        @Override
+        public String onMotion(String name) {
+            if (scriptPlayer.isPlaying()) {
+                return "{\"ok\": false, \"message\": \"script is playing; stop first\"}";
+            }
+            runOnUiThread(() -> statusText.setText("內建動作量測: " + name));
+            String result = robotController.playMotionAndSample(name);
+            runOnUiThread(() -> statusText.setText("內建動作量測完成: " + name));
+            return result;
+        }
+
+        @Override
+        public String traceJson(long sinceMs) {
+            return robotController.traceJson(sinceMs);
         }
 
         @Override

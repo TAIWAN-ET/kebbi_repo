@@ -32,6 +32,9 @@ import java.util.Locale;
  * POST /stop                       停止
  * POST /home                       歸位
  * POST /motor-test?motor=&amp;deg=&amp;speed=   轉一顆馬達並在機器人端量反應時間
+ * GET  /motions                    內建 motion 清單
+ * POST /motion?name=NAME           播一個內建 motion，播放中每 20ms 取樣 10 顆馬達角度，播完回傳
+ * GET  /trace[?since=MS]           腳本播放時的馬達角度軌跡（/play、/script 加 trace=1 才會記錄）
  * </pre>
  *
  * <p><b>同步播放</b>：{@code at} 是「影片 t=0 對應的 Kebbi 時鐘」（{@link #nowMs()}）。
@@ -44,8 +47,8 @@ import java.util.Locale;
  * <b>同一個區網內任何人都能讓機器人動</b>，所以只在需要時才打開（UI 上的開關）。
  *
  * <p>純 Java（java.net），不依賴 Android，也不需要額外函式庫；PC 上可以直接測。
- * 連線各自在背景執行緒處理（最多 {@link #WORKERS} 個）：/motor-test 會佔住幾秒，
- * 這段時間 /stop 一定要能馬上進來。
+ * 每個連線各自一條背景執行緒：/motor-test、/motion 會佔住幾秒，這段時間 /stop 一定要能馬上進來。
+ * 會佔住的量測一次只跑一個（另一個回 409），所以不會把執行緒用光。
  */
 public class ScriptServer {
 
@@ -55,8 +58,8 @@ public class ScriptServer {
     /** 腳本大小上限：3 分鐘的舞約 200KB，8MB 已經很寬鬆，避免被塞爆記憶體。 */
     private static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
 
-    /** 同時處理的連線數上限。 */
-    private static final int WORKERS = 4;
+    /** 會佔住幾秒的量測（/motor-test、/motion）一次只跑一個。 */
+    private final java.util.concurrent.Semaphore longOp = new java.util.concurrent.Semaphore(1);
 
     /** 單一連線讀取逾時（毫秒）。 */
     private static final int SOCKET_TIMEOUT_MS = 10_000;
@@ -66,14 +69,27 @@ public class ScriptServer {
 
     /** 實際執行各指令的一方（MainActivity 實作）。回傳值是給電腦看的訊息。 */
     public interface Handler {
-        /** @param startAtMs 影片 t=0 的 Kebbi 時鐘，或 {@link #START_NOW} */
-        String onScript(DanceScript script, boolean play, long startAtMs) throws Exception;
+        /**
+         * @param startAtMs 影片 t=0 的 Kebbi 時鐘，或 {@link #START_NOW}
+         * @param trace     播放時記錄馬達角度軌跡（GET /trace 讀）
+         */
+        String onScript(DanceScript script, boolean play, long startAtMs, boolean trace) throws Exception;
 
         /**
          * @param startAtMs 影片 t=0 的 Kebbi 時鐘，或 {@link #START_NOW}
+         * @param trace     播放時記錄馬達角度軌跡
          * @throws IllegalStateException 指定了開始時間卻沒辦法照時間開始（回 409 給電腦）
          */
-        String onPlay(long startAtMs) throws Exception;
+        String onPlay(long startAtMs, boolean trace) throws Exception;
+
+        /** @return JSON 物件字串 {"ok":true,"motions":[...]} */
+        String motionsJson() throws Exception;
+
+        /** 播一個內建 motion 並取樣馬達角度，播完才返回。@return JSON 物件字串 */
+        String onMotion(String name) throws Exception;
+
+        /** @param sinceMs 只要 Kebbi 時鐘大於它的取樣；{@link #START_NOW}＝全部。@return JSON 物件字串 */
+        String traceJson(long sinceMs) throws Exception;
 
         String onStop() throws Exception;
 
@@ -124,7 +140,7 @@ public class ScriptServer {
         }
         ServerSocket socket = new ServerSocket(port);
         serverSocket = socket;
-        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(WORKERS, r -> {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "ScriptServer-worker");
             t.setDaemon(true);
             return t;
@@ -291,9 +307,29 @@ public class ScriptServer {
                     return;
                 }
                 respond(out, 200, ok(handler.onScript(script, hasFlag(query, "play"),
-                        longParam(query, "at", START_NOW))));
+                        longParam(query, "at", START_NOW), hasFlag(query, "trace"))));
             } else if ("POST".equals(method) && "/play".equals(path)) {
-                respond(out, 200, ok(handler.onPlay(longParam(query, "at", START_NOW))));
+                respond(out, 200, ok(handler.onPlay(longParam(query, "at", START_NOW), hasFlag(query, "trace"))));
+            } else if ("GET".equals(method) && "/motions".equals(path)) {
+                respond(out, 200, handler.motionsJson());
+            } else if ("GET".equals(method) && "/trace".equals(path)) {
+                respond(out, 200, handler.traceJson(longParam(query, "since", START_NOW)));
+            } else if ("POST".equals(method) && "/motion".equals(path)) {
+                String name = param(query, "name");
+                if (name == null || name.isEmpty()) {
+                    respond(out, 400, error("need name"));
+                    return;
+                }
+                name = java.net.URLDecoder.decode(name, "UTF-8");
+                if (!longOp.tryAcquire()) {
+                    respond(out, 409, error("another measurement is running"));
+                    return;
+                }
+                try {
+                    respond(out, 200, handler.onMotion(name));
+                } finally {
+                    longOp.release();
+                }
             } else if ("POST".equals(method) && "/stop".equals(path)) {
                 respond(out, 200, ok(handler.onStop()));
             } else if ("POST".equals(method) && "/home".equals(path)) {
@@ -306,8 +342,18 @@ public class ScriptServer {
                     return;
                 }
                 String speed = param(query, "speed");
-                respond(out, 200, handler.onMotorTest(Integer.parseInt(motor), Float.parseFloat(deg),
-                        speed == null ? 60f : Float.parseFloat(speed)));
+                int motorId = Integer.parseInt(motor);
+                float degree = Float.parseFloat(deg);
+                float speedDeg = speed == null ? 60f : Float.parseFloat(speed);
+                if (!longOp.tryAcquire()) {
+                    respond(out, 409, error("another measurement is running"));
+                    return;
+                }
+                try {
+                    respond(out, 200, handler.onMotorTest(motorId, degree, speedDeg));
+                } finally {
+                    longOp.release();
+                }
             } else {
                 respond(out, 404, error("unknown endpoint: " + method + " " + path));
             }
