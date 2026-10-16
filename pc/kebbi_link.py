@@ -37,13 +37,39 @@ DISCOVERY_PROBE = b"KEBBI_DISCOVER"
 DEFAULT_START_DELAY_S = 3.0      # 同步播放：預設排在幾秒後開始（要比 Kebbi 的預備時間 1.5 秒長）
 
 
-def discover(timeout: float = 1.5) -> list[dict]:
+def _local_ipv4() -> list[str]:
+    """電腦的 IPv4（排除 127.x）。"""
+    ips: set[str] = set()
+    try:
+        ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    try:
+        # 不會真的送封包：只是讓系統選出「預設路由」那張網卡的 IP
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ips.add(s.getsockname()[0])
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith("127."))
+
+
+def _broadcast_targets() -> list[str]:
+    """255.255.255.255 在 Windows 上只會從其中一張網卡出去（有 VPN、Hyper-V、WSL 虛擬網卡時常常選錯），
+    所以每張網卡再送一次該網段的廣播（假設 /24，家用路由器幾乎都是）。"""
+    targets = ["255.255.255.255"]
+    for ip in _local_ipv4():
+        targets.append(ip.rsplit(".", 1)[0] + ".255")
+    return targets + ["127.0.0.1"]   # 127.0.0.1：本機的 FakeKebbi
+
+
+def discover(timeout: float = 2.0) -> list[dict]:
     """廣播搜尋區網中的 Kebbi，回傳 [{"host", "port", "name"}, ...]。"""
     found: dict[str, dict] = {}
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.settimeout(0.2)
-        targets = ["255.255.255.255", "127.0.0.1"]   # 127.0.0.1：本機的 FakeKebbi
+        targets = _broadcast_targets()
         deadline = time.time() + timeout
         next_probe = 0.0
         while time.time() < deadline:
@@ -186,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         robots = discover()
         if not robots:
             print("找不到 Kebbi（確認 App 已開啟、同一個 Wi-Fi；有些路由器會擋廣播，這時請直接用 IP）")
+            print("電腦的 IP：" + (", ".join(_local_ipv4()) or "(取不到)")
+                  + "　→ 前三段要和 Kebbi 畫面上的 IP 一樣")
             return 1
         for r in robots:
             print(f"{r['host']}:{r['port']}  {r['name']}")
