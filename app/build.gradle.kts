@@ -21,7 +21,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 固定的 debug 簽名：GitHub Actions 每次都是新機器，不固定的話每版簽名都不同，
+    // Kebbi 上就不能 adb install -r 覆蓋更新。這把只用於 debug，不是正式發佈用。
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("kebbi-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             optimization {
                 enable = false
