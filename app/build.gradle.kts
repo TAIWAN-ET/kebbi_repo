@@ -11,7 +11,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        // 和舊的 Kebbi Dance（com.example.myapplication）分開，兩個可以同時裝在 Kebbi 上
+        applicationId = "com.taiwanet.kebbilink"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

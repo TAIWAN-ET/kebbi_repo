@@ -99,7 +99,7 @@ APK 上有 **播放腳本** 按鈕，並且一開 App 就會開啟 **Wi-Fi 遠�
 **方法 A：USB（adb push）**
 
 ```bash
-adb push out/<影片檔名>/dance_script.json /sdcard/Android/data/com.example.myapplication/files/dance_script.json
+adb push out/<影片檔名>/dance_script.json /sdcard/Android/data/com.taiwanet.kebbilink/files/dance_script.json
 ```
 
 然後在 Kebbi 上按「播放腳本」。每次按都會重新讀檔，換新腳本不用重開 App。

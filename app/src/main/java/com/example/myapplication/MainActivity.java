@@ -179,7 +179,7 @@ public class MainActivity extends AppCompatActivity {
                 });
         scriptServer = new ScriptServer(ScriptServer.DEFAULT_PORT, scriptServerHandler);
         discoveryResponder = new DiscoveryResponder(DiscoveryResponder.DEFAULT_PORT,
-                "Kebbi " + Build.MODEL, ScriptServer.DEFAULT_PORT);
+                "Kebbi Link (" + Build.MODEL + ")", ScriptServer.DEFAULT_PORT);
 
         // Step6：設定影片選擇器
         setupVideoPicker();

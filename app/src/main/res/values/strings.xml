@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Kebbi Dance</string>
+    <string name="app_name">Kebbi Link</string>
     <string name="kebbi_ready">Kebbi control ready</string>
     <string name="pick_video_button">分析影片(前10秒)</string>
     <string name="play_dance_button">Play Dance</string>
