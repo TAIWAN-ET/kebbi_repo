@@ -1,8 +1,12 @@
 package com.example.myapplication;
 
 import android.content.Intent;
+import android.content.Context;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -21,6 +25,7 @@ import com.example.myapplication.model.DanceScript;
 import com.example.myapplication.model.KeyframeEntry;
 import com.example.myapplication.model.PoseFeature;
 import com.example.myapplication.model.RobotCommand;
+import com.example.myapplication.net.DiscoveryResponder;
 import com.example.myapplication.net.ScriptServer;
 import com.example.myapplication.robot.DanceScriptPlayer;
 import com.example.myapplication.robot.MotionPoseMap;
@@ -82,7 +87,12 @@ public class MainActivity extends AppCompatActivity {
     private RobotController robotController;
     private DanceScriptPlayer scriptPlayer;
     private ScriptServer scriptServer;
+    private DiscoveryResponder discoveryResponder;
+    // 遠端開啟時拿著：Wi-Fi 省電會讓封包延遲上百毫秒，也可能丟掉搜尋用的廣播封包
+    private WifiManager.WifiLock wifiLock;
+    private WifiManager.MulticastLock multicastLock;
     private Button remoteButton;
+    private TextView connectionText;
     // 目前載入的腳本（按鈕播放或遠端 /play 都播這份）
     private volatile DanceScript loadedScript;
     private VideoAnalyzer videoAnalyzer;
@@ -133,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         statusText = findViewById(R.id.statusText);
         timerText = findViewById(R.id.timerText);
+        connectionText = findViewById(R.id.connectionText);
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -167,6 +178,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
         scriptServer = new ScriptServer(ScriptServer.DEFAULT_PORT, scriptServerHandler);
+        discoveryResponder = new DiscoveryResponder(DiscoveryResponder.DEFAULT_PORT,
+                "Kebbi Link (" + Build.MODEL + ")", ScriptServer.DEFAULT_PORT);
 
         // Step6：設定影片選擇器
         setupVideoPicker();
@@ -196,6 +209,9 @@ public class MainActivity extends AppCompatActivity {
         headLimitButton.setOnClickListener(v -> robotController.testHeadTurningLimits(statusListener));
         handLimitButton.setOnClickListener(v -> robotController.testHandWavingLimits(statusListener));
         mapperTestButton.setOnClickListener(v -> testRobotMapper());
+        // Step8：一開 App 就開始等電腦連線（同一個 Wi-Fi 下，電腦端會自動找到這台）
+        startRemote();
+
         stepSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -340,27 +356,77 @@ public class MainActivity extends AppCompatActivity {
      * @return 給使用者 / 電腦看的結果訊息
      */
     private String startScriptPlayback() {
+        return startScriptPlayback(ScriptServer.START_NOW);
+    }
+
+    /**
+     * @param startAtMs 影片 t=0 的 Kebbi 時鐘（電腦端對時後給的），或 {@link ScriptServer#START_NOW}
+     */
+    private String startScriptPlayback(long startAtMs) {
         DanceScript script = loadedScript;
         if (script == null) {
-            return "No dance script loaded";
+            return notStarted(startAtMs, "No dance script loaded");
         }
         if (!robotController.isReady()) {
-            return "Nuwa robot SDK is not ready";
+            return notStarted(startAtMs, "Nuwa robot SDK is not ready");
         }
         if (scriptPlayer.isPlaying()) {
-            return "Already playing; stop first";
+            return notStarted(startAtMs, "Already playing; stop first");
         }
         // 先停掉舊的 keyframe / feature 播放迴圈，避免兩邊同時搶馬達
         dancePlaybackStopped = true;
         robotController.stopAll();
 
-        boolean started = scriptPlayer.play(script, true, scriptListener);
+        long playerStart = startAtMs == ScriptServer.START_NOW ? DanceScriptPlayer.START_NOW : startAtMs;
+        boolean started = scriptPlayer.play(script, true, scriptListener, playerStart);
         if (!started) {
+            if (startAtMs != ScriptServer.START_NOW) {
+                return notStarted(startAtMs, String.format(Locale.US,
+                        "Script not started: start time is %+d ms from now (allowed -%d ~ +%d)",
+                        startAtMs + script.steps.get(0).timeMs - ScriptServer.nowMs(),
+                        DanceScriptPlayer.MAX_LATE_START_MS, DanceScriptPlayer.MAX_SCHEDULE_AHEAD_MS));
+            }
             return "Script not started (empty script?)";
         }
         runOnUiThread(this::startTimer);
         return "Playing script: " + script.describe();
     }
+
+    /**
+     * 沒開始播放：一般情況回傳訊息；電腦指定了開始時間（正在等「同一刻開始」）就丟例外，
+     * ScriptServer 會回 409，電腦端才知道影片不該照常播。
+     */
+    private String notStarted(long startAtMs, String reason) {
+        if (startAtMs == ScriptServer.START_NOW) {
+            return reason;
+        }
+        runOnUiThread(() -> statusText.setText(reason));
+        throw new IllegalStateException(reason);
+    }
+
+    /**
+     * 播放；trace 時先開始記錄馬達角度（預備動作也記到），沒開始播就停掉記錄。
+     * 播完再多記 {@link #TRACE_TAIL_MS} 才停（看最後一步有沒有到位）。
+     */
+    private String playWithOptionalTrace(long startAtMs, boolean trace) {
+        if (!trace) {
+            return startScriptPlayback(startAtMs);
+        }
+        robotController.startTrace();
+        try {
+            String message = startScriptPlayback(startAtMs);
+            if (!scriptPlayer.isPlaying()) {
+                robotController.stopTrace();
+            }
+            return message + " (tracing motors)";
+        } catch (RuntimeException e) {
+            robotController.stopTrace();
+            throw e;
+        }
+    }
+
+    /** 播完之後軌跡再多記多久（毫秒）。 */
+    private static final long TRACE_TAIL_MS = 1500L;
 
     /** 腳本播放進度 → 畫面。 */
     private final DanceScriptPlayer.Listener scriptListener = new DanceScriptPlayer.Listener() {
@@ -375,6 +441,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onFinished(boolean completed, String message) {
+            timerHandler.postDelayed(robotController::stopTrace, TRACE_TAIL_MS);
             runOnUiThread(() -> {
                 stopTimer();
                 statusText.setText(message);
@@ -382,43 +449,99 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    /** 開 / 關 Wi-Fi 遠端接收。只在需要時開：同一區網的任何人都能讓機器人動。 */
+    /** 開 / 關 Wi-Fi 遠端接收（App 啟動時預設開啟）。同一區網的任何人都能讓機器人動，不用時可以關掉。 */
     private void toggleRemote() {
         if (scriptServer.isRunning()) {
-            scriptServer.stop();
-            remoteButton.setText(R.string.remote_on_button);
+            stopRemote();
             statusText.setText("遠端接收已關閉");
             return;
         }
+        startRemote();
+    }
+
+    /** 開啟 ScriptServer + 自動搜尋回應，拿 Wi-Fi 鎖，畫面保持亮著，顯示連線資訊。 */
+    private void startRemote() {
         try {
             scriptServer.start();
         } catch (IOException e) {
-            statusText.setText("遠端接收啟動失敗: " + e.getMessage());
+            connectionText.setText("遠端接收啟動失敗: " + e.getMessage());
             return;
         }
+        try {
+            discoveryResponder.start();
+        } catch (IOException e) {
+            // 自動搜尋失敗不影響連線，電腦端改成輸入 IP 即可
+        }
+        acquireWifiLocks();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         remoteButton.setText(R.string.remote_off_button);
-        StringBuilder sb = new StringBuilder("遠端接收已開啟，電腦端執行:\n");
+        showConnectionInfo();
+    }
+
+    private void stopRemote() {
+        scriptServer.stop();
+        discoveryResponder.stop();
+        releaseWifiLocks();
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        remoteButton.setText(R.string.remote_on_button);
+        connectionText.setText("Wi-Fi 遠端：關閉");
+    }
+
+    /** 畫面上方顯示「電腦要連哪裡」。 */
+    private void showConnectionInfo() {
         List<String> ips = ScriptServer.localIpv4Addresses();
+        StringBuilder sb = new StringBuilder("Wi-Fi 遠端：等待電腦連線\n");
         if (ips.isEmpty()) {
-            sb.append("(找不到 IP，請確認 Kebbi 已連上 Wi-Fi)");
+            sb.append("找不到 IP，請確認 Kebbi 已連上 Wi-Fi（和電腦同一個網路）");
         }
         for (String ip : ips) {
-            sb.append("python send_script.py ").append(ip)
-                    .append(" <dance_script.json> --play\n");
+            sb.append("IP ").append(ip).append("  埠 ").append(scriptServer.getPort()).append('\n');
         }
-        statusText.setText(sb.toString());
+        sb.append("電腦端：python kebbi_link.py find");
+        connectionText.setText(sb.toString().trim());
+    }
+
+    private void acquireWifiLocks() {
+        WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wifi == null) {
+            return;
+        }
+        try {
+            if (wifiLock == null) {
+                wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "kebbi-remote");
+                wifiLock.setReferenceCounted(false);
+            }
+            wifiLock.acquire();
+            if (multicastLock == null) {
+                multicastLock = wifi.createMulticastLock("kebbi-discovery");
+                multicastLock.setReferenceCounted(false);
+            }
+            multicastLock.acquire();
+        } catch (RuntimeException e) {
+            // 少了鎖只是延遲可能比較大，不影響功能
+        }
+    }
+
+    private void releaseWifiLocks() {
+        if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+        }
+        if (multicastLock != null && multicastLock.isHeld()) {
+            multicastLock.release();
+        }
     }
 
     /** ScriptServer 的指令處理（在 ScriptServer 的背景執行緒上呼叫）。 */
     private final ScriptServer.Handler scriptServerHandler = new ScriptServer.Handler() {
         @Override
-        public String onScript(DanceScript script, boolean play) throws Exception {
+        public String onScript(DanceScript script, boolean play, long startAtMs, boolean trace)
+                throws Exception {
             // 存檔：之後按「播放腳本」按鈕也能重播同一份
             DanceScriptIO.write(new File(getExternalFilesDir(null), DANCE_SCRIPT_FILE), script);
             loadedScript = script;
             String message = "Received " + script.describe();
             if (play) {
-                message += "\n" + startScriptPlayback();
+                message += "\n" + playWithOptionalTrace(startAtMs, trace);
             }
             final String shown = message;
             runOnUiThread(() -> statusText.setText(shown));
@@ -426,8 +549,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public String onPlay() {
-            String message = startScriptPlayback();
+        public String onPlay(long startAtMs, boolean trace) {
+            String message = playWithOptionalTrace(startAtMs, trace);
             runOnUiThread(() -> statusText.setText(message));
             return message;
         }
@@ -446,11 +569,48 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
+        public String motionsJson() {
+            return robotController.motionsJson();
+        }
+
+        @Override
+        public String onMotion(String name) {
+            if (scriptPlayer.isPlaying()) {
+                return "{\"ok\": false, \"message\": \"script is playing; stop first\"}";
+            }
+            runOnUiThread(() -> statusText.setText("內建動作量測: " + name));
+            String result = robotController.playMotionAndSample(name);
+            runOnUiThread(() -> statusText.setText("內建動作量測完成: " + name));
+            return result;
+        }
+
+        @Override
+        public String traceJson(long sinceMs) {
+            return robotController.traceJson(sinceMs);
+        }
+
+        @Override
+        public String onMotorTest(int motorId, float degree, float speedDegPerSec) {
+            if (scriptPlayer.isPlaying()) {
+                return "{\"ok\": false, \"message\": \"script is playing; stop first\"}";
+            }
+            runOnUiThread(() -> statusText.setText(String.format(Locale.US,
+                    "馬達延遲量測: M%d → %.0f°", motorId, degree)));
+            return robotController.measureMotorResponse(motorId, degree, speedDegPerSec);
+        }
+
+        @Override
         public String statusJson() {
             DanceScript script = loadedScript;
+            long now = ScriptServer.nowMs();
+            long zero = scriptPlayer.getTimelineZeroMs();
+            boolean hasTimeline = zero != DanceScriptPlayer.NO_TIMELINE;
             return "{\"ok\": true"
                     + ", \"robotReady\": " + robotController.isReady()
                     + ", \"playing\": " + scriptPlayer.isPlaying()
+                    + ", \"kebbiMs\": " + now
+                    + ", \"timelineZeroMs\": " + (hasTimeline ? String.valueOf(zero) : "null")
+                    + ", \"positionMs\": " + (hasTimeline ? String.valueOf(now - zero) : "null")
                     + ", \"script\": " + (script == null ? "null" : ScriptServer.quote(script.describe()))
                     + "}";
         }
@@ -730,7 +890,8 @@ public class MainActivity extends AppCompatActivity {
             scriptPlayer.stop();
         }
         if (robotController != null) {
-            robotController.stopAll();
+            // 不只停止送新指令：連轉到一半的馬達也停在原地
+            robotController.emergencyStop();
         }
         statusText.setText("Stopped");
     }
@@ -762,6 +923,10 @@ public class MainActivity extends AppCompatActivity {
 
         // Step3：停止計時器、遠端接收與腳本播放
         stopTimer();
+        if (discoveryResponder != null) {
+            discoveryResponder.stop();
+        }
+        releaseWifiLocks();
         if (scriptServer != null) {
             scriptServer.stop();
         }

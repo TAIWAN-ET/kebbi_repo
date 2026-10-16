@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Kebbi Dance</string>
+    <string name="app_name">Kebbi Link</string>
     <string name="kebbi_ready">Kebbi control ready</string>
     <string name="pick_video_button">分析影片(前10秒)</string>
     <string name="play_dance_button">Play Dance</string>
@@ -9,6 +9,6 @@
     <string name="hand_limit_button">Test Hand Limits</string>
     <string name="mapper_test_button">Test RobotMapper</string>
     <string name="play_script_button">播放腳本 (dance_script.json)</string>
-    <string name="remote_on_button">開啟遠端接收 (Wi-Fi)</string>
-    <string name="remote_off_button">關閉遠端接收</string>
+    <string name="remote_on_button">開啟 Wi-Fi 遠端</string>
+    <string name="remote_off_button">關閉 Wi-Fi 遠端</string>
 </resources>

@@ -73,10 +73,22 @@ public class DanceScriptPlayer {
     }
 
     /** 送出第一步之後、開始計時之前的等待時間（毫秒）。 */
-    private static final long PREROLL_MS = 1500L;
+    public static final long PREROLL_MS = 1500L;
 
     /** 播完歸位時的速度（度/秒），和 RobotController 的歸位速度同級。 */
     private static final float HOME_SPEED_DEG_PER_SEC = 45f;
+
+    /** 指定開始時間最多可以排到多久以後（毫秒）；太遠多半是電腦端時鐘算錯。 */
+    public static final long MAX_SCHEDULE_AHEAD_MS = 60_000L;
+
+    /** 指定的開始時間最多可以已經過了多久（毫秒）；再晚的話前面一大段會一次補送，機器人會亂甩。 */
+    public static final long MAX_LATE_START_MS = 1_000L;
+
+    /** {@code play(..., startAtMs)} 的「不指定開始時間」。nanoTime 在 PC 的 JVM 上可能是負的，所以不用 -1。 */
+    public static final long START_NOW = Long.MIN_VALUE;
+
+    /** 「還沒有時間軸」時 {@link #getTimelineZeroMs()} 的回傳值。 */
+    public static final long NO_TIMELINE = Long.MIN_VALUE;
 
     /** 速度下限，避免 0 或負數速度送進 SDK。 */
     private static final float MIN_SPEED_DEG_PER_SEC = 1f;
@@ -96,6 +108,8 @@ public class DanceScriptPlayer {
     private volatile Thread worker;
     private volatile boolean playing;
     private volatile boolean stopRequested;
+    /** 影片 t=0 對應的時鐘（毫秒，{@link System#nanoTime()} / 1e6）；沒在播為 {@link #NO_TIMELINE}。 */
+    private volatile long timelineZeroMs = NO_TIMELINE;
 
     /**
      * @param sink 實際送出馬達指令的地方
@@ -121,14 +135,42 @@ public class DanceScriptPlayer {
      * @param listener   進度回呼
      * @return 已開始播放回傳 true；正在播放中或腳本是空的回傳 false
      */
-    public synchronized boolean play(DanceScript script, boolean returnHome, Listener listener) {
+    public boolean play(DanceScript script, boolean returnHome, Listener listener) {
+        return play(script, returnHome, listener, START_NOW);
+    }
+
+    /**
+     * 開始播放，並指定影片 t=0 是哪一刻（和 PC 上的影片同步用）。
+     *
+     * <p>第一步仍然立刻送出當預備動作，之後每一步在 {@code startAtMs + step.timeMs} 送出。
+     * 時間已經過了的步驟會立刻補送（記在 max late），所以電腦要把開始時間排在預備時間之後。
+     *
+     * @param startAtMs 影片 t=0 的時鐘（{@link System#nanoTime()} / 1e6）；{@link #START_NOW}＝現在 + 預備時間
+     * @return 已開始播放回傳 true；正在播放中、腳本是空的、或開始時間太早 / 太晚回傳 false
+     */
+    public synchronized boolean play(DanceScript script, boolean returnHome, Listener listener,
+            long startAtMs) {
         if (playing || script == null || script.steps.isEmpty()) {
             return false;
         }
+        long nowMs = elapsedMs(0L);
+        long firstMs = script.steps.get(0).timeMs;
+        if (startAtMs != START_NOW && (startAtMs > nowMs + MAX_SCHEDULE_AHEAD_MS
+                || startAtMs + firstMs < nowMs - MAX_LATE_START_MS)) {
+            return false;
+        }
+        // 不指定時：第一步在「現在 + 預備時間」對上它自己的 t
+        long zeroMs = startAtMs != START_NOW ? startAtMs : nowMs + PREROLL_MS - firstMs;
+        timelineZeroMs = zeroMs;
         playing = true;
         stopRequested = false;
-        executor.execute(() -> run(script, returnHome, listener));
+        executor.execute(() -> run(script, returnHome, listener, zeroMs));
         return true;
+    }
+
+    /** @return 影片 t=0 對應的時鐘（毫秒）；沒在播放回傳 {@link #NO_TIMELINE} */
+    public long getTimelineZeroMs() {
+        return timelineZeroMs;
     }
 
     /**
@@ -157,7 +199,7 @@ public class DanceScriptPlayer {
         executor.shutdownNow();
     }
 
-    private void run(DanceScript script, boolean returnHome, Listener listener) {
+    private void run(DanceScript script, boolean returnHome, Listener listener, long zeroMs) {
         int total = script.steps.size();
         List<DanceScript.FaceEvent> faces = faceSink == null
                 ? Collections.<DanceScript.FaceEvent>emptyList() : script.faces;
@@ -184,10 +226,13 @@ public class DanceScriptPlayer {
             stats.rejected += sendStep(first);
             stats.sentSteps++;
             listener.onStep(0, total, first);
-            Thread.sleep(PREROLL_MS);
 
             // Step2：以第一步為零點，照絕對時間送出之後每一步（以及在它之前到期的換臉）
-            long startNanos = System.nanoTime();
+            long startNanos = (zeroMs + originMs) * 1_000_000L;
+            long prerollMs = -elapsedMs(startNanos);
+            if (prerollMs > 0) {
+                Thread.sleep(prerollMs);
+            }
             for (int i = 1; i < total; i++) {
                 DanceScript.Step step = script.steps.get(i);
                 while (faceIndex < faces.size() && faces.get(faceIndex).timeMs <= step.timeMs) {
@@ -237,6 +282,7 @@ public class DanceScriptPlayer {
             error = e.toString();
         } finally {
             worker = null;
+            timelineZeroMs = NO_TIMELINE;
             // 清掉可能殘留的中斷旗標，executor 的下一個任務才不會一開始就被中斷
             Thread.interrupted();
             if (stats.sentFaces + stats.rejectedFaces > 0) {
