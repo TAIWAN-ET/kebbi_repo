@@ -127,6 +127,10 @@ class KebbiError(RuntimeError):
 
 class KebbiLink:
     def __init__(self, host: str, port: int = DEFAULT_PORT):
+        # 也接受畫面上照抄的「IP:埠號」
+        if host.count(":") == 1:
+            host, _, port_text = host.partition(":")
+            port = int(port_text)
         self.host = host
         self.port = port
         self.clock: ClockSync | None = None
