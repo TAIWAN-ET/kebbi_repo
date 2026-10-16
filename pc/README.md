@@ -94,7 +94,7 @@ java -cp build/classes com.example.myapplication.pc.FaceExpressionEval out/face_
 
 ## 傳給 Kebbi 播放
 
-APK 上有兩個新按鈕：**播放腳本**、**開啟遠端接收**。
+APK 上有 **播放腳本** 按鈕，並且一開 App 就會開啟 **Wi-Fi 遠端**。APK 由 GitHub Actions 編譯（Actions → Build debug APK → `kebbi-debug-apk`）。
 
 **方法 A：USB（adb push）**
 
@@ -104,27 +104,53 @@ adb push out/<影片檔名>/dance_script.json /sdcard/Android/data/com.example.m
 
 然後在 Kebbi 上按「播放腳本」。每次按都會重新讀檔，換新腳本不用重開 App。
 
-**方法 B：Wi-Fi（不用插線）**
+**方法 B：Wi-Fi（不用插線，建議）**
 
-1. Kebbi 上按「開啟遠端接收」，畫面會顯示它的 IP
-2. 電腦（同一個 Wi-Fi）：
+App 一開就會等電腦連線，畫面最上方的藍色框顯示 Kebbi 的 IP 與埠號（8765）。
+Kebbi 和電腦要連**同一個 Wi-Fi**。以下指令都只用 Python 標準函式庫，IP 可以省略（自動搜尋）。
 
 ```bash
-python send_script.py <Kebbi IP> out/<影片檔名>/dance_script.json --play
-python send_script.py <Kebbi IP> --stop      # 停止
-python send_script.py <Kebbi IP> --home      # 歸位
-python send_script.py <Kebbi IP> --status    # 狀態
+python kebbi_link.py find                                     # 找 Kebbi（UDP 8766 廣播）
+python kebbi_link.py send out/<影片檔名>/dance_script.json --play
+python kebbi_link.py status                                   # 狀態、播放到影片第幾毫秒
+python kebbi_link.py stop / home
+python sync_play.py auto out/<影片檔名>/dance_script.json <影片.mp4>   # 影片和 Kebbi 同步播放
+python measure_latency.py                                     # 量 Wi-Fi、對時、馬達反應延遲
 ```
 
+路由器擋廣播（公司 / 學校網路常見）時 `find` 會找不到，直接把畫面上的 IP 填進去即可，例如
+`python kebbi_link.py status 192.168.1.50`。舊的 `send_script.py <IP> ...` 也照樣能用。
+
+**影片同步怎麼做到的**（`sync_play.py`）：
+
+1. 腳本整份先傳到 Kebbi，播放中不靠 Wi-Fi 一步一步送，所以 Wi-Fi 延遲不會一路累積
+2. 對時：問 Kebbi 時鐘 20 次，取來回最快的一次，算出兩邊時鐘差（誤差 ≈ 最短來回時間的一半，家用 Wi-Fi 通常幾毫秒）
+3. 選幾秒後（`--delay`，預設 3 秒）當影片 t=0，用 `/play?at=` 告訴 Kebbi；Kebbi 先擺好第一個姿勢，時間到才開始
+4. 瀏覽器開一頁播放影片，在同一刻開始，播放中持續把影片進度拉回時間軸（偏差大就跳、小就微調播放速度）
+
+馬達本身的反應時間已經算進腳本（`DanceScriptBuilder` 會提早送指令）。實機看起來還是慢半拍時，
+先用 `measure_latency.py` 量「開始動」的時間，再用 `--video-offset-ms` 把影片往後挪。
+
 收到的腳本會存成 `dance_script.json`，之後按「播放腳本」也能重播。
-遠端接收**沒有密碼**，同一個區網的人都能讓機器人動，用完請關掉。
+遠端**沒有密碼**，同一個區網的人都能讓機器人動；不用時按「關閉 Wi-Fi 遠端」。
+
+Kebbi 端 API（`ScriptServer`，HTTP 8765，全部回 JSON）：
+
+| 方法 | 路徑 | 說明 |
+|---|---|---|
+| GET | `/status` | `playing`、`kebbiMs`、`timelineZeroMs`、`positionMs`（播放到影片第幾毫秒） |
+| GET | `/time` | `kebbiMs`：Kebbi 時鐘（開機後單調毫秒），對時用 |
+| POST | `/script[?play=1][&at=MS]` | 上傳腳本；`at`＝影片 t=0 對應的 Kebbi 時鐘 |
+| POST | `/play[?at=MS]` | 播放已載入的腳本；指定 `at` 卻無法照時間開始時回 409 |
+| POST | `/stop`、`/home` | 停止、歸位 |
+| POST | `/motor-test?motor=&deg=&speed=` | 轉一顆馬達，機器人端每 10ms 讀角度，回傳開始動 / 到位時間 |
 
 **沒有機器人時測試**：`FakeKebbi` 跑的是和 App 完全相同的接收器與播放器，只是把馬達指令印出來：
 
 ```bash
 .venv/Scripts/python make_dance.py <影片> --skip-extract    # 會順便編譯 FakeKebbi
 java -cp build/classes com.example.myapplication.pc.FakeKebbi
-python send_script.py 127.0.0.1 out/<影片檔名>/dance_script.json --play
+python kebbi_link.py send 127.0.0.1 out/<影片檔名>/dance_script.json --play
 ```
 
 ## 播放器行為（`DanceScriptPlayer`）

@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- PC Offload：ScriptServer 在區網接收電腦送來的舞蹈腳本 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Wi-Fi 遠端：讀 Wi-Fi 狀態、拿 WifiLock（避免省電造成延遲）與 MulticastLock（收搜尋廣播） -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature
         android:name="android.hardware.camera"

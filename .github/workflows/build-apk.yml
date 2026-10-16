@@ -2,7 +2,7 @@ name: Build debug APK
 
 on:
   push:
-    branches: [ "claude/build-apk-*" ]
+    branches: [ "claude/build-apk-*", "claude/project-thread-*" ]
   workflow_dispatch:
 
 jobs:

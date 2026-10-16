@@ -25,12 +25,18 @@ import java.util.Locale;
  *
  * <p>API（全部回 JSON）：
  * <pre>
- * GET  /status              目前狀態
- * POST /script[?play=1]     body 為 dance_script.json；play=1 收到就播
- * POST /play                播放目前載入的腳本
- * POST /stop                停止
- * POST /home                歸位
+ * GET  /status                     目前狀態（含 Kebbi 時鐘、播放到影片第幾毫秒）
+ * GET  /time                       Kebbi 時鐘（毫秒），電腦用來對時
+ * POST /script[?play=1][&amp;at=MS]     body 為 dance_script.json；play=1 收到就播
+ * POST /play[?at=MS]               播放目前載入的腳本
+ * POST /stop                       停止
+ * POST /home                       歸位
+ * POST /motor-test?motor=&amp;deg=&amp;speed=   轉一顆馬達並在機器人端量反應時間
  * </pre>
+ *
+ * <p><b>同步播放</b>：{@code at} 是「影片 t=0 對應的 Kebbi 時鐘」（{@link #nowMs()}）。
+ * 電腦先用 /time 量出兩邊時鐘差，再選一個幾秒後的時間點，影片和機器人就能從同一刻開始。
+ * 不給 at 時機器人自己決定（預備時間後開始），/status 的 timelineZeroMs 會告訴電腦是哪一刻。
  *
  * <p>誰會呼叫它：{@code MainActivity} 建立並開關；電腦端用 {@code pc/send_script.py} 呼叫。
  *
@@ -51,18 +57,41 @@ public class ScriptServer {
     /** 單一連線讀取逾時（毫秒）。 */
     private static final int SOCKET_TIMEOUT_MS = 10_000;
 
+    /** 「沒有指定開始時間」：由機器人自己決定。 */
+    public static final long START_NOW = Long.MIN_VALUE;
+
     /** 實際執行各指令的一方（MainActivity 實作）。回傳值是給電腦看的訊息。 */
     public interface Handler {
-        String onScript(DanceScript script, boolean play) throws Exception;
+        /** @param startAtMs 影片 t=0 的 Kebbi 時鐘，或 {@link #START_NOW} */
+        String onScript(DanceScript script, boolean play, long startAtMs) throws Exception;
 
-        String onPlay() throws Exception;
+        /**
+         * @param startAtMs 影片 t=0 的 Kebbi 時鐘，或 {@link #START_NOW}
+         * @throws IllegalStateException 指定了開始時間卻沒辦法照時間開始（回 409 給電腦）
+         */
+        String onPlay(long startAtMs) throws Exception;
 
         String onStop() throws Exception;
 
         String onHome() throws Exception;
 
+        /**
+         * 轉一顆馬達，在機器人端每隔幾毫秒讀回角度，量「下指令 → 開始動 → 到位」的時間。
+         *
+         * @return JSON 物件字串
+         */
+        String onMotorTest(int motorId, float degree, float speedDegPerSec) throws Exception;
+
         /** @return 狀態 JSON 物件字串，例如 {"playing":false} */
         String statusJson();
+    }
+
+    /**
+     * Kebbi 時鐘：開機後的單調毫秒數（不受使用者改系統時間影響）。
+     * /time、at 參數、DanceScriptPlayer 的時間軸都用這一個時鐘。
+     */
+    public static long nowMs() {
+        return System.nanoTime() / 1_000_000L;
     }
 
     private final int port;
@@ -205,7 +234,10 @@ public class ScriptServer {
 
         // Step4：路由
         try {
-            if ("GET".equals(method) && "/status".equals(path)) {
+            if ("GET".equals(method) && "/time".equals(path)) {
+                // 盡量貼近收到請求的時刻，對時誤差才小
+                respond(out, 200, "{\"ok\": true, \"kebbiMs\": " + nowMs() + "}");
+            } else if ("GET".equals(method) && "/status".equals(path)) {
                 respond(out, 200, handler.statusJson());
             } else if ("POST".equals(method) && "/script".equals(path)) {
                 DanceScript script;
@@ -219,19 +251,50 @@ public class ScriptServer {
                     respond(out, 400, error("dance script has no steps"));
                     return;
                 }
-                respond(out, 200, ok(handler.onScript(script, hasFlag(query, "play"))));
+                respond(out, 200, ok(handler.onScript(script, hasFlag(query, "play"),
+                        longParam(query, "at", START_NOW))));
             } else if ("POST".equals(method) && "/play".equals(path)) {
-                respond(out, 200, ok(handler.onPlay()));
+                respond(out, 200, ok(handler.onPlay(longParam(query, "at", START_NOW))));
             } else if ("POST".equals(method) && "/stop".equals(path)) {
                 respond(out, 200, ok(handler.onStop()));
             } else if ("POST".equals(method) && "/home".equals(path)) {
                 respond(out, 200, ok(handler.onHome()));
+            } else if ("POST".equals(method) && "/motor-test".equals(path)) {
+                String motor = param(query, "motor");
+                String deg = param(query, "deg");
+                if (motor == null || deg == null) {
+                    respond(out, 400, error("need motor and deg"));
+                    return;
+                }
+                String speed = param(query, "speed");
+                respond(out, 200, handler.onMotorTest(Integer.parseInt(motor), Float.parseFloat(deg),
+                        speed == null ? 60f : Float.parseFloat(speed)));
             } else {
                 respond(out, 404, error("unknown endpoint: " + method + " " + path));
             }
+        } catch (NumberFormatException e) {
+            respond(out, 400, error("bad number: " + e.getMessage()));
+        } catch (IllegalStateException e) {
+            // 目前狀態做不到（例如指定的開始時間已經過了），電腦端要知道失敗
+            respond(out, 409, error(String.valueOf(e.getMessage())));
         } catch (Exception e) {
             respond(out, 500, error(String.valueOf(e.getMessage())));
         }
+    }
+
+    /** @return query 裡 name=value 的 value；沒有就回傳 null */
+    private static String param(String query, String name) {
+        for (String pair : query.split("&")) {
+            if (pair.startsWith(name + "=")) {
+                return pair.substring(name.length() + 1);
+            }
+        }
+        return null;
+    }
+
+    private static long longParam(String query, String name, long fallback) {
+        String value = param(query, name);
+        return value == null || value.isEmpty() ? fallback : Long.parseLong(value);
     }
 
     /** query 裡有 name=1 / name=true / 單獨的 name 都算開啟。 */
@@ -288,6 +351,7 @@ public class ScriptServer {
             case 200: reason = "OK"; break;
             case 400: reason = "Bad Request"; break;
             case 404: reason = "Not Found"; break;
+            case 409: reason = "Conflict"; break;
             case 413: reason = "Payload Too Large"; break;
             default: reason = "Internal Server Error"; break;
         }

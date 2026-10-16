@@ -654,6 +654,82 @@ public class RobotController {
     }
 
     /**
+     * 轉一顆馬達並在機器人端量反應時間（給電腦端 measure_latency.py，經 ScriptServer /motor-test 呼叫）。
+     *
+     * <p>在機器人上量，而不是讓電腦一直問位置：每次問都多一趟 Wi-Fi，量到的會是網路延遲不是馬達。
+     * 會阻塞呼叫的執行緒最多幾秒（ScriptServer 的背景執行緒，可以接受）。
+     *
+     * <p>回傳 JSON：{@code startDeg}、{@code commandMs}（ctlMotor 本身花多久）、
+     * {@code firstMoveMs}（離開起點 1 度）、{@code reachMs}（進到目標 2 度內）、
+     * {@code expectedMs}（照速度算的理論時間）、{@code samples}（[毫秒, 角度]，從下指令起算）。
+     * 沒動到或沒到位時對應欄位是 null。
+     *
+     * @return JSON 物件字串
+     */
+    public String measureMotorResponse(int motorId, float degree, float speedDegPerSec) {
+        RobotCommand safe = DanceScriptPlayer.sanitize(new RobotCommand(motorId, degree, speedDegPerSec));
+        if (safe == null) {
+            return "{\"ok\": false, \"message\": \"motor " + motorId + " is not a mapped motor\"}";
+        }
+        NuwaRobotAPI api = isReady() ? NuwaRobotAPI.getInst() : null;
+        if (api == null) {
+            return "{\"ok\": false, \"message\": \"Nuwa robot SDK is not ready\"}";
+        }
+        final float moveThresholdDeg = 1f;
+        final float reachThresholdDeg = 2f;
+        final long pollMs = 10L;
+
+        float startDeg = api.getMotorPresentPositionInDegree(motorId);
+        long expectedMs = travelMs(Math.abs(safe.degree - startDeg), safe.speedDegPerSec);
+        long timeoutMs = expectedMs * 2 + 2000L;
+
+        long t0 = System.nanoTime();
+        api.ctlMotor(motorId, safe.degree, safe.speedDegPerSec);
+        lastCommandedDegree.put(motorId, safe.degree);
+        long commandMs = (System.nanoTime() - t0) / 1_000_000L;
+
+        Long firstMoveMs = null;
+        Long reachMs = null;
+        StringBuilder samples = new StringBuilder();
+        long lastSampleMs = -1000L;
+        try {
+            while (true) {
+                long ms = (System.nanoTime() - t0) / 1_000_000L;
+                if (ms > timeoutMs) {
+                    break;
+                }
+                float deg = api.getMotorPresentPositionInDegree(motorId);
+                if (firstMoveMs == null && Math.abs(deg - startDeg) >= moveThresholdDeg) {
+                    firstMoveMs = ms;
+                }
+                if (reachMs == null && Math.abs(deg - safe.degree) <= reachThresholdDeg) {
+                    reachMs = ms;
+                }
+                // 取樣點最多約每 30ms 一個，回傳不會太大
+                if (ms - lastSampleMs >= 30L) {
+                    if (samples.length() > 0) {
+                        samples.append(", ");
+                    }
+                    samples.append(String.format(Locale.US, "[%d, %.1f]", ms, deg));
+                    lastSampleMs = ms;
+                }
+                if (reachMs != null && ms - reachMs > 300L) {
+                    break;  // 到位後再多看一下有沒有過衝
+                }
+                Thread.sleep(pollMs);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return String.format(Locale.US,
+                "{\"ok\": true, \"motor\": %d, \"targetDeg\": %.1f, \"speed\": %.1f, \"startDeg\": %.1f,"
+                        + " \"commandMs\": %d, \"firstMoveMs\": %s, \"reachMs\": %s, \"expectedMs\": %d,"
+                        + " \"samples\": [%s]}",
+                motorId, safe.degree, safe.speedDegPerSec, startDeg, commandMs,
+                firstMoveMs, reachMs, expectedMs, samples);
+    }
+
+    /**
      * 估算馬達轉動需要的時間。
      *
      * @param deltaDeg       要轉的角度差（度，取絕對值）
