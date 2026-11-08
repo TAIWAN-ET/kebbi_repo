@@ -4,8 +4,10 @@
     python pybullet_sim.py ../out/rtmlib_demo/dance_script.json --gui      # 開 PyBullet 視窗即時播放
 
 做了什麼：
-1. build_urdf.py 由 robot.xml 產生 URDF（10 顆馬達 revolute，其餘 fixed，套官方角度範圍）
-2. 依腳本時間送位置控制（目標角度 + 腳本指定的速度上限，力矩上限 TORQUE_LIMIT）
+1. build_urdf.py 由 robot.xml 產生 URDF（10 顆馬達 revolute，其餘 fixed，套實機到得了的角度範圍）
+2. 依腳本時間送位置控制（目標角度 + 速度上限，力矩上限 TORQUE_LIMIT）。
+   預設套用實機馬達模型（motor_model.py / motor_response.json）：每顆延遲 delayMs 才開始動、
+   速度用實測的「指令 → 實際」轉速；和實機一樣，預備時間先擺到第一步的姿勢。--ideal 關掉（指令即時、照指令速度）
 3. 每 1/30 秒記錄實際角度，並偵測「自碰撞」（排除站姿本來就接觸的零件對）
 4. 輸出：追蹤誤差、超過馬達速度上限的指令數、新出現的碰撞
 
@@ -22,6 +24,7 @@ from pathlib import Path
 
 import pybullet as p
 
+import motor_model
 from build_urdf import JOINT_COLORS, JOINT_TO_MOTOR, MOTORS, build, color_key
 
 HERE = Path(__file__).resolve().parent
@@ -95,9 +98,10 @@ def contact_pairs(robot, names, pairs, min_depth=0.0):
     return out
 
 
-def run(script_path: Path, gui: bool, out_path: Path) -> dict:
+def run(script_path: Path, gui: bool, out_path: Path, ideal: bool = False) -> dict:
     script = json.loads(script_path.read_text(encoding="utf-8"))
     robot, joints, names = load_robot(gui)
+    model = None if ideal else motor_model.load()
 
     def deg_to_rad(motor, deg):
         return math.radians(deg) * MOTORS[motor][3]
@@ -112,6 +116,28 @@ def run(script_path: Path, gui: bool, out_path: Path) -> dict:
     baseline = set(contact_pairs(robot, names, pairs))  # 站姿本來就接觸的零件對
 
     steps = sorted(script["steps"], key=lambda s: s["t"])
+    # 送到馬達的指令：(生效時間, 馬達, 角度, 速度)。有模型時延遲 delayMs、速度換成實測轉速
+    motor_cmds = []
+    preset = model and steps and steps[0]["t"] <= 0   # 實機播放器在預備時間就先擺到第一步的姿勢
+    last_cmd = {}
+    for k, s in enumerate(steps):
+        ts = s["t"] / 1000.0
+        for c in s["cmds"]:
+            m = c["motor"]
+            if m not in joints:
+                continue
+            if preset and k == 0:
+                p.resetJointState(robot, joints[m], deg_to_rad(m, c["deg"]))
+                continue
+            if model:
+                since = ts - last_cmd[m] if m in last_cmd else None
+                motor_cmds.append((ts + motor_model.delay_s(model, m, since), m, c["deg"],
+                                   motor_model.actual_speed(model, m, min(c["speed"], MOTORS[m][4]))))
+            else:
+                motor_cmds.append((ts, m, c["deg"], c["speed"]))
+            last_cmd[m] = ts
+    motor_cmds.sort(key=lambda x: x[0])
+    ci = 0
     duration = script["durationMs"] / 1000.0
     target = {m: 0.0 for m in joints}
     frames, err_sum, err_max, err_n = [], {m: 0.0 for m in joints}, {m: 0.0 for m in joints}, 0
@@ -126,15 +152,17 @@ def run(script_path: Path, gui: bool, out_path: Path) -> dict:
                 m = c["motor"]
                 if m not in joints:
                     continue
-                target[m] = c["deg"]
-                limit = MOTORS[m][4]
-                if c["speed"] > limit:
+                target[m] = c["deg"]    # 腳本想要的角度（追蹤誤差以這個為準）
+                if c["speed"] > MOTORS[m][4]:
                     over_speed[m] = over_speed.get(m, 0) + 1
-                p.setJointMotorControl2(robot, joints[m], p.POSITION_CONTROL,
-                                        targetPosition=deg_to_rad(m, c["deg"]),
-                                        force=TORQUE_LIMIT,
-                                        maxVelocity=math.radians(min(c["speed"], limit)))
             si += 1
+        while ci < len(motor_cmds) and motor_cmds[ci][0] <= t:
+            _, m, deg, speed = motor_cmds[ci]
+            p.setJointMotorControl2(robot, joints[m], p.POSITION_CONTROL,
+                                    targetPosition=deg_to_rad(m, deg),
+                                    force=TORQUE_LIMIT,
+                                    maxVelocity=math.radians(max(0.1, speed if model else min(speed, MOTORS[m][4]))))
+            ci += 1
         p.stepSimulation()
         if gui:
             time.sleep(max(0.0, t - (time.time() - t0)))
@@ -164,6 +192,7 @@ def run(script_path: Path, gui: bool, out_path: Path) -> dict:
         "new_collisions": [{"pair": list(k), **v} for k, v in sorted(collisions.items(), key=lambda kv: -kv[1]["frames"])],
         "baseline_contact_pairs": len(baseline),
         "torque_limit_nm": TORQUE_LIMIT,
+        "motor_model": "measured" if model else "ideal",
         "frames": frames,
     }
     out_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -175,9 +204,11 @@ def main() -> None:
     ap.add_argument("script", type=Path)
     ap.add_argument("--gui", action="store_true")
     ap.add_argument("--out", type=Path, default=HERE / "sim_result.json")
+    ap.add_argument("--ideal", action="store_true", help="不套實機馬達模型：指令即時生效、照指令速度")
     a = ap.parse_args()
-    r = run(a.script, a.gui, a.out)
-    print(f"simulated {r['duration_ms'] / 1000:.1f}s, frames={len(r['frames'])}")
+    r = run(a.script, a.gui, a.out, ideal=a.ideal)
+    print(f"simulated {r['duration_ms'] / 1000:.1f}s, frames={len(r['frames'])}, "
+          f"motor model: {r['motor_model']}")
     for name, s in r["tracking"].items():
         print(f"  {name:18s} mean err {s['mean_abs_err_deg']:6.2f}°  max {s['max_err_deg']:6.1f}°")
     print("over velocity limit:", r["commands_over_velocity_limit"] or "none")

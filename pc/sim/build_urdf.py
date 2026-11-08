@@ -1,7 +1,7 @@
 """從 kebbi_3d_model/robot.xml 產生 PyBullet 可載入的 URDF。
 
 - 網格：*.stlx（binary STL，頂點 = (z, x, y) * 0.1）與 *.stl（(x, y, z) * 0.01）轉成正常單位（公尺）的 binary STL
-- 關節：10 顆馬達（頭 2、每臂 肩 Z/Y/X + 肘 Y）做成 revolute 並套用官方角度範圍；其餘全部 fixed
+- 關節：10 顆馬達（頭 2、每臂 肩 Z/Y/X + 肘 Y）做成 revolute 並套用角度範圍（官方範圍，實機到不了的改用 REAL_LIMITS）；其餘全部 fixed
 - 右臂的 shoulder_x / shoulder_z 軸與左臂相反（實測：同樣的正值，左臂外展、右臂內收），
   所以馬達角度 → 關節角度要乘 MOTOR_SIGN，限位也一起翻
 
@@ -35,6 +35,19 @@ MOTORS = {
     10: ("left_elbow_y", -80, 0, 1, 200),
 }
 JOINT_TO_MOTOR = {v[0]: k for k, v in MOTORS.items()}
+
+# 實機到得了的範圍（2026-10-16 pc/motor_bench.py 實測：60°/s 轉到官方限位，記錄停下的角度；內建動作 666_BA_* 也沒超過）。
+# 官方範圍比這寬，但實機被機構擋住；URDF 用這個，模擬才不會做出實機做不到的姿勢。沒列的照官方。
+REAL_LIMITS = {
+    1: (-20, 18),       # 頭上下：+20 → 17.8（往下 −20 沒測：舊模型判定會碰身體）
+    4: (-200, 28),      # 右肩前後：+70 → 28.0
+    5: (3, 81),         # 右側舉：−3 → 5.1，+100 → 79.7；內建動作到 81
+    8: (-200, 27),      # 左肩前後：+70 → 27.0
+    9: (3, 81),         # 左側舉：−3 → 2.8，+100 → 77.8；內建動作到 81
+}
+# 硬體最快轉速（°/s）：內建動作實測的最高值（手臂 300~390、頭左右 ~130、頭上下 ~90），寫進 URDF 的 velocity。
+# MOTORS 的 velocityLimit 仍是 ctlMotor（SDK）指令能給的上限 200 / 120；指令實際轉多快見 motor_model.py。
+HW_MAX_VEL = {1: 100, 2: 140, 3: 350, 4: 370, 5: 330, 6: 340, 7: 350, 8: 380, 9: 400, 10: 340}
 
 # 依「帶動這個零件的主要關節」上色（與網頁曲線同色）；不受馬達帶動的身體為淺灰
 JOINT_COLORS = {
@@ -148,7 +161,9 @@ def build(out_dir: Path = OUT_DIR) -> Path:
             lines.append(f'  <joint name="{j["name"]}" type="fixed"><parent link="{j["parent"]}"/>'
                          f'<child link="{j["child"]}"/><origin xyz="{j["xyz"]}" rpy="{j["rpy"]}"/></joint>')
             continue
-        _, lo, hi, sign, vel = MOTORS[mid]
+        _, lo, hi, sign, _ = MOTORS[mid]
+        lo, hi = REAL_LIMITS.get(mid, (lo, hi))
+        vel = HW_MAX_VEL[mid]
         rlo, rhi = (lo, hi) if sign == 1 else (-hi, -lo)
         lines.append(
             f'  <joint name="{j["name"]}" type="revolute"><parent link="{j["parent"]}"/><child link="{j["child"]}"/>'
