@@ -1,0 +1,9 @@
+{
+  "id": "vX_template",
+  "name": "Template (not listed)",
+  "description": "Copy this folder to versions/v1_xxx and edit. Folders starting with _ are ignored.",
+  "requires": ["cv2", "numpy"],
+  "params": {
+    "sampleHz": 5.0
+  }
+}

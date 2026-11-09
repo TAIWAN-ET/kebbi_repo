@@ -1,5 +1,7 @@
 package com.example.myapplication.pc;
 
+import com.example.myapplication.analysis.MotionScriptFactory;
+import com.example.myapplication.analysis.PoseAnalyzer;
 import com.example.myapplication.io.DanceScriptIO;
 import com.example.myapplication.io.FaceIO;
 import com.example.myapplication.io.PoseIO;
@@ -7,14 +9,20 @@ import com.example.myapplication.math.PoseMath;
 import com.example.myapplication.model.DanceScript;
 import com.example.myapplication.model.FaceFrame;
 import com.example.myapplication.model.Landmark;
+import com.example.myapplication.motion.MotionScript;
 import com.example.myapplication.model.MotionSequence;
+import com.example.myapplication.model.PoseFeature;
 import com.example.myapplication.model.PoseFrame;
 import com.example.myapplication.model.PoseLandmark;
 import com.example.myapplication.robot.DanceScriptBuilder;
 import com.example.myapplication.robot.FaceScriptBuilder;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -112,9 +120,44 @@ public final class DanceScriptGenerator {
             }
         }
         System.out.println("round-trip: " + (roundTripOk ? "OK" : "FAILED"));
+
+        // Step7：動作庫腳本（token：CIRCLE / WAVE / RAISE / NOD …），與舞蹈腳本放同一個資料夾。
+        // 只輸出、不影響 dance_script.json；失敗也不讓整個流程失敗。
+        writeMotionScript(sequence.frames, outJson);
         System.out.println("wrote " + outJson.getAbsolutePath());
         if (!roundTripOk) {
             System.exit(1);
+        }
+    }
+
+    /**
+     * 用動作庫（{@code motion/}）把同一份姿態壓成 token 腳本，寫到 {@code motion_script.json / .txt}。
+     */
+    private static void writeMotionScript(List<PoseFrame> frames, File danceJson) {
+        try {
+            List<PoseFeature> features = new ArrayList<>();
+            List<Long> times = new ArrayList<>();
+            for (PoseFrame frame : frames) {
+                features.add(PoseAnalyzer.analyzeFrame(frame));
+                times.add(frame.timestampMs);
+            }
+            MotionScript motion = MotionScriptFactory.fromFeatures(features, times, "video");
+            File dir = danceJson.getAbsoluteFile().getParentFile();
+            writeText(new File(dir, "motion_script.json"), motion.toJson());
+            writeText(new File(dir, "motion_script.txt"), motion.toCompact());
+            MotionScript.Metrics m = motion.metrics();
+            System.out.println(String.format(Locale.US,
+                    "motion script: tokens=%d semanticReduction=%.0f%% rmse=%.3f %s -> %s",
+                    m.tokenCount, m.semanticReduction * 100f, m.rmse, m.pass ? "OK" : "WARN",
+                    new File(dir, "motion_script.json").getPath()));
+        } catch (RuntimeException | IOException e) {
+            System.out.println("motion script: FAILED (" + e + ")");
+        }
+    }
+
+    private static void writeText(File file, String text) throws IOException {
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            w.write(text);
         }
     }
 

@@ -42,6 +42,43 @@ py -3.12 -m venv .venv
 | `--skip-extract` | 沿用上次的 CSV，只重跑映射（調 `RobotMapper` 參數時用，幾秒就好）；沒有臉部 CSV 時仍會跑臉部辨識 |
 | `--no-face` | 不做臉部表情辨識，腳本裡沒有換臉事件 |
 
+## 動作庫腳本（motion_script.json）
+
+`make_dance.py` 產生 `dance_script.json` 的同時，會用動作庫（`app/.../motion/`，從 C:\kebbi 版移植）把同一份姿態
+壓成 token 腳本，寫到同一個資料夾：
+
+- `motion_script.json`：schema `kebbi.motion-script/v1`，每個 token 是「關節 + 動作原子 + 時間 + 參數」
+- `motion_script.txt`：一行一個 token 的緊湊版，方便肉眼看，例如 `RIGHT_WRIST|CIRCLE|0-1000|r=0.348|...`
+
+動作原子有 HOLD、CIRCLE、SWING、WAVE、RAISE、LOWER、TURN_L/R、NOD、SHAKE、LEAN_L/R、FREEFORM；
+軌跡只有三條：左右手腕（相對肩中點、以肩寬為單位）和頭。規格見 `docs/motion/`。
+
+**目前只輸出、不播放**：Kebbi 播的仍是 `dance_script.json`。token 要驅動馬達還需要一個把 token 展開成
+`DanceScript` 步驟的轉換器（原本規劃的 `TokenRobotPlanner`）。動作庫自己的合成測試：
+
+```bash
+java -cp build/classes com.example.myapplication.motion.MotionSamplingVerify
+```
+
+## 認人 + 表情（v0_face）
+
+`face_id/` 是 C:\kebbi 版的 PC 臉部分析：YuNet 偵測臉 → SFace 比對 gallery 認人 → FER+ 7 類表情，
+輸出 `latest.json`（schema `kebbi.pc.result/1`）和畫好框的 `annotated.mp4`。
+和上面 `extract_face.py`（MediaPipe blendshape → 換臉事件）是兩套，彼此獨立；這套多了「認人」。
+
+```bash
+cd face_id
+python -m pip install -r requirements.txt
+python run.py --list
+python run.py --version v0_face --video ../../video_push/clip.mp4 --gallery gallery
+```
+
+- 模型（YuNet / SFace / FER+，約 75 MB）第一次執行自動下載到 `face_id/models/`，不進版控。
+- gallery：`face_id/gallery/<人名>/01.jpg`，資料夾名稱就是顯示名稱（建議 ASCII），每人 1~5 張正面照，
+  SFace cosine 門檻 0.363。沒給 gallery 時全部是 `Unknown`。gallery 有個人照片，不進版控。
+- 新增分析版本：複製 `versions/_template` → `versions/v1_xxx`，改 `manifest.json` 與 `plugin.py`。
+- 輸出在 `face_id/output/<版本>/`（不進版控）。
+
 ## 調參數
 
 映射參數寫在 **App 的原始碼**，這裡是直接拿來編譯的，所以改一份兩邊都生效：
