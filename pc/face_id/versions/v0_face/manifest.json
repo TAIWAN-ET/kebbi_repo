@@ -1,0 +1,13 @@
+{
+  "id": "v0_face",
+  "name": "Face only (YuNet + SFace + FER+)",
+  "description": "5Hz face detection, optional gallery recognition, 7-class emotion, annotated MP4 + JSON.",
+  "requires": ["cv2", "numpy", "onnxruntime"],
+  "params": {
+    "sampleHz": 5.0,
+    "minFacePx": 40,
+    "detThreshold": 0.7,
+    "maxSeconds": 0,
+    "annotated": "true"
+  }
+}

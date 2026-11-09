@@ -36,6 +36,8 @@ SHARED_SOURCES = [
     "io/*.java",
     "analysis/PoseAnalyzer.java",
     "analysis/FaceExpressionAnalyzer.java",
+    "analysis/MotionScriptFactory.java",
+    "motion/*.java",
     "robot/RobotMapper.java",
     "robot/RobotMotor.java",
     "robot/MotionPoseMap.java",

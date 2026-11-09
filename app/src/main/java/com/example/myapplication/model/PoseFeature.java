@@ -59,6 +59,22 @@ public class PoseFeature {
      */
     public float headPitch;
 
+    /**
+     * 左手腕相對兩肩中點的 x（影像座標，單位：肩寬；右正左負）。
+     * 給動作庫（{@code MotionScriptFactory}）建立手腕 2D 軌跡用。
+     */
+    public float leftWristX;
+    /** 左手腕相對兩肩中點的 y（影像座標，單位：肩寬；下正上負）。 */
+    public float leftWristY;
+    /** 右手腕相對兩肩中點的 x（單位：肩寬）。 */
+    public float rightWristX;
+    /** 右手腕相對兩肩中點的 y（單位：肩寬）。 */
+    public float rightWristY;
+    /** 左手腕是否可信（visibility / presence 皆 >= 0.5）。 */
+    public boolean leftWristVisible;
+    /** 右手腕是否可信。 */
+    public boolean rightWristVisible;
+
     /** 左手腕是否高於肩膀（對應 LEFT_HAND_UP 事件，校正用）。 */
     public boolean leftWristAboveShoulder;
     /** 右手腕是否高於肩膀（對應 RIGHT_HAND_UP 事件，校正用）。 */

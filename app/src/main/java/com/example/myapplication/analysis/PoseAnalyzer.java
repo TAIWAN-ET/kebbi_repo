@@ -138,6 +138,19 @@ public final class PoseAnalyzer {
         feature.leftWristAboveShoulder = imgLeftWrist.y < imgLeftShoulder.y - 0.05f;
         feature.rightWristAboveShoulder = imgRightWrist.y < imgRightShoulder.y - 0.05f;
 
+        // Step6b：手腕相對肩中點的位置（單位：肩寬），給動作庫建手腕 2D 軌跡
+        feature.leftWristVisible = imgLeftWrist.visibility >= 0.5f && imgLeftWrist.presence >= 0.5f;
+        feature.rightWristVisible = imgRightWrist.visibility >= 0.5f && imgRightWrist.presence >= 0.5f;
+        Landmark imgShoulderCenter = PoseMath.calculateMidPoint(imgLeftShoulder, imgRightShoulder);
+        float imgShoulderWidth = (float) Math.hypot(imgLeftShoulder.x - imgRightShoulder.x,
+                imgLeftShoulder.y - imgRightShoulder.y);
+        if (imgShoulderWidth > 1e-6f) {
+            feature.leftWristX = (imgLeftWrist.x - imgShoulderCenter.x) / imgShoulderWidth;
+            feature.leftWristY = (imgLeftWrist.y - imgShoulderCenter.y) / imgShoulderWidth;
+            feature.rightWristX = (imgRightWrist.x - imgShoulderCenter.x) / imgShoulderWidth;
+            feature.rightWristY = (imgRightWrist.y - imgShoulderCenter.y) / imgShoulderWidth;
+        }
+
         // Step7：軀幹左右傾斜量（影像座標下肩中點與髖中點的水平偏移，正=右傾）
         // 這是 normalized 單位，keyframe 的 0.03 門檻就是照這個尺度調的，維持不變。
         Landmark imgShoulderMid = PoseMath.calculateMidPoint(imgLeftShoulder, imgRightShoulder);
