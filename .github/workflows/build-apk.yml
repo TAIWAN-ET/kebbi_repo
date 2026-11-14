@@ -17,6 +17,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - name: PC planner tests
+        run: |
+          python3 -m pip install --quiet numpy
+          python3 pc/tests/test_retime.py
       - name: Install SDK packages
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36.1" "build-tools;36.0.0" > /dev/null
       - name: Build

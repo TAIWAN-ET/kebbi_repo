@@ -3,6 +3,13 @@
 > 分支：`pc-offload`。細節與數據見 [`pc/report/CHANGES.md`](pc/report/CHANGES.md)（依時間順序的修改紀錄）、
 > [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md)（開發日誌）、[`pc/README.md`](pc/README.md)（PC 端用法）。
 
+## 2026-11-14 更新：依實機馬達重排時間
+
+- `pc/retime.py`（`make_dance.py` 自動執行）：用 `pc/sim/motor_response.json` 的實測起動延遲與轉速，逐顆馬達重算送出時間與指令速度。
+- `DanceScriptGenerator` 的平滑改成零相位（往前、往後各濾一次），不再把動作拖晚約一個取樣間隔。
+- `RobotMapper` 的上限改成實機到得了的值：頭上下 +18、肩前後 +27、側舉 +81。
+- 合成姿態跑完整流程（馬達模型評估，非實機）：動作比影片晚 215 ms → 15 ms。**還沒在實機上用 `camera_check.py` 驗證。**
+
 ## 一句話
 
 影片 → 3D 姿態（rtmlib RTMW3D）→ App 內同一份 Java 映射成馬達腳本 → 傳給 Kebbi（或 FakeKebbi）播放；
