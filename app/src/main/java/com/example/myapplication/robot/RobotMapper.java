@@ -79,10 +79,14 @@ public class RobotMapper {
     // ---------------------------------------------------------------
 
     private static final float NECK_YAW_MIN_DEG = -31f, NECK_YAW_MAX_DEG = 31f;       // NECK_Z
-    private static final float NECK_PITCH_MIN_DEG = -20f, NECK_PITCH_MAX_DEG = 20f;   // NECK_Y
-    private static final float SHOULDER_MIN_DEG = -200f, SHOULDER_MAX_DEG = 70f;
-    /** 肩 X（側向外展）：-3 ~ 100（兩手相同，正值＝往外）。 */
-    private static final float SHOULDER_X_MIN_DEG = -3f, SHOULDER_X_MAX_DEG = 100f;
+    //
+    // 實機到不了官方範圍的馬達改用實測值（2026-10-16 pc/motor_bench.py：60°/s 轉到官方限位，記錄停下的角度），
+    // 和 pc/sim/build_urdf.py 的 REAL_LIMITS 一致。送超過的角度只會讓馬達頂著機構：
+    //   頭上下 +20 → 停在 17.8；肩前後 +70 → 27~28；側舉 +100 → 78~80（內建動作最多到 81）
+    private static final float NECK_PITCH_MIN_DEG = -20f, NECK_PITCH_MAX_DEG = 18f;   // NECK_Y（官方 +20）
+    private static final float SHOULDER_MIN_DEG = -200f, SHOULDER_MAX_DEG = 27f;      // 官方 +70
+    /** 肩 X（側向外展）：官方 -3 ~ 100，實機最多到 81（兩手相同，正值＝往外）。 */
+    private static final float SHOULDER_X_MIN_DEG = -3f, SHOULDER_X_MAX_DEG = 81f;
     /** 肩 Z（水平轉動）：-85 ~ 5，負值＝手臂往胸前內收（官方動作也只用負值）。 */
     private static final float SHOULDER_Z_MIN_DEG = -85f, SHOULDER_Z_MAX_DEG = 5f;
     private static final float ELBOW_MIN_DEG = -80f, ELBOW_MAX_DEG = 0f;
@@ -177,8 +181,8 @@ public class RobotMapper {
             y = (float) Math.toDegrees(Math.atan2(-h, -up));
             z = (float) Math.toDegrees(Math.atan2(out, forward));
         }
-        // 合法範圍 -200~70，另一種表示是 y-360。超出上限時取離得近的一邊夾位：
-        // 往後上方不太高（70~115）夾在 70；接近舉過頭（>115）換成 y-360（約 -200~-245，之後夾成 -200）
+        // 合法範圍 -200~SHOULDER_MAX_DEG，另一種表示是 y-360。超出上限時取離得近的一邊夾位：
+        // 往後上方不太高（上限~115）夾在上限；接近舉過頭（>115）換成 y-360（約 -200~-245，之後夾成 -200）
         if (y > SHOULDER_MAX_DEG) {
             y = y > 115f ? y - 360f : SHOULDER_MAX_DEG;
         }

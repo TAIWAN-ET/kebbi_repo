@@ -42,6 +42,31 @@ py -3.12 -m venv .venv
 | `--skip-extract` | 沿用上次的 CSV，只重跑映射（調 `RobotMapper` 參數時用，幾秒就好）；沒有臉部 CSV 時仍會跑臉部辨識 |
 | `--no-face` | 不做臉部表情辨識，腳本裡沒有換臉事件 |
 
+## 依實機馬達重排時間（retime.py）
+
+`make_dance.py` 最後一步會自動跑 `retime.py`：`DanceScriptGenerator` 產生的腳本假設馬達「一收到指令就照指定速度轉」，
+實機不是（`sim/motor_response.json`，`motor_bench.py` 實測）：靜止起動要 145~210 ms、連續指令約 35 ms，
+指令速度和實際轉速也不一樣。`retime.py` 逐顆馬達重算送出時間和指令速度，讓機器人和舞者在同一段時間內轉動；
+馬達最快也來不及的動作會置中在舞者的動作時間上，下一拍要反方向時縮小幅度；角度夾在實機到得了的範圍。
+
+- `dance_script.json`：重排後的腳本（送給 Kebbi 的就是這份，格式不變，App 不用改；每顆馬達有自己的送出時間，步數會變多）
+- `dance_script.raw.json`：重排前的原始腳本
+- `--no-retime`：不重排；`--lead-ms 20`：實機看起來還是慢時，整體再提早 20 ms
+
+單獨使用 / 只看評估：
+
+```bash
+python retime.py out/<影片檔名>/dance_script.raw.json --out out/<影片檔名>/dance_script.json
+python retime.py out/<影片檔名>/dance_script.raw.json --eval-only
+python -m pytest tests            # 或 python tests/test_retime.py
+```
+
+印出的「時間差」是馬達模型算出的動作比影片晚幾毫秒，用的是「延遲＋實測轉速」的運動學模型，
+不是 PyBullet 也不是實機；上實機後請用 `camera_check.py` 再量一次。重新量過馬達（`motor_bench.py` →
+`sim/motor_model.py fit`）之後重跑 `make_dance.py ... --skip-extract` 就會套用新的數字。
+
+另外，離線分析的平滑改成往前、往後各濾一次（零相位）。原本只往前濾一次，動作會比影片晚大約一個取樣間隔。
+
 ## 動作庫腳本（motion_script.json）
 
 `make_dance.py` 產生 `dance_script.json` 的同時，會用動作庫（`app/.../motion/`，從 C:\kebbi 版移植）把同一份姿態

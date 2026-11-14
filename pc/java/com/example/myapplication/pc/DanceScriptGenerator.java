@@ -47,8 +47,15 @@ import java.util.Map;
  */
 public final class DanceScriptGenerator {
 
-    /** 與 VideoAnalyzer.SMOOTHING_ALPHA 相同，PC 與 App 分析結果才一致。 */
-    private static final float SMOOTHING_ALPHA = 0.5f;
+    /**
+     * 平滑係數（越大越相信新值）。
+     *
+     * <p>App 內即時分析（VideoAnalyzer）只能往前濾一次，用 0.5；那樣的濾波會讓輸出比影片晚
+     * 約一個取樣間隔（200ms）。這裡是離線分析、整段影片都已經在手上，所以往前、往後各濾一次：
+     * 兩次的延遲互相抵銷（零相位），動作的時間點不會被濾波拖晚。
+     * 每一次用 0.7，兩次合起來的平滑程度和原本單次 0.5 差不多。
+     */
+    private static final float SMOOTHING_ALPHA = 0.7f;
 
     private static final long DEFAULT_INTERVAL_MS = 200L;
 
@@ -184,11 +191,21 @@ public final class DanceScriptGenerator {
         return matched;
     }
 
-    /** 對 normalized 與 world 兩組座標各自做一階低通濾波。 */
+    /**
+     * 對 normalized 與 world 兩組座標各自做一階低通濾波：先由前往後、再由後往前（零相位）。
+     *
+     * <p>只往前濾一次會讓每個動作都晚出現（機器人整體慢半拍）；往回再濾一次把這個延遲抵銷掉。
+     */
     private static void smooth(List<PoseFrame> frames) {
+        smoothPass(frames, 0, frames.size(), 1);
+        smoothPass(frames, frames.size() - 1, -1, -1);
+    }
+
+    private static void smoothPass(List<PoseFrame> frames, int from, int to, int stride) {
         List<Landmark> prevNorm = null;
         List<Landmark> prevWorld = null;
-        for (PoseFrame frame : frames) {
+        for (int i = from; i != to; i += stride) {
+            PoseFrame frame = frames.get(i);
             frame.landmarks = smooth(frame.landmarks, prevNorm);
             frame.worldLandmarks = smooth(frame.worldLandmarks, prevWorld);
             prevNorm = frame.landmarks;

@@ -9,6 +9,8 @@
 2. 編譯 App 內的純 Java 類別 + pc/java 的 DanceScriptGenerator（javac，只編不打包）
 3. 執行 DanceScriptGenerator：PoseAnalyzer → RobotMapper → DanceScriptBuilder，
    FaceExpressionAnalyzer → FaceScriptBuilder → JSON
+4. retime.py：依實機馬達反應（起動延遲、實際轉速、實機限位）重排每顆馬達的送出時間與速度
+   （--no-retime 可關掉；重排前的腳本留在 dance_script.raw.json）
 
 產出的 dance_script.json 就是要送給 Kebbi 播放的檔案。
 """
@@ -100,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="reuse existing CSVs in --out-dir (only re-run mapping)")
     parser.add_argument("--no-face", action="store_true",
                         help="skip facial expression recognition (no face events in the script)")
+    parser.add_argument("--no-retime", action="store_true",
+                        help="keep the generator's fixed timing (do not apply the measured motor model)")
+    parser.add_argument("--lead-ms", type=float, default=0.0,
+                        help="send every command this many ms earlier (trim if the real robot still looks late)")
     args = parser.parse_args(argv)
     # 子行程（javac / java）的輸出和這裡的 print 交錯時才不會亂序
     sys.stdout.reconfigure(line_buffering=True)
@@ -145,6 +151,26 @@ def main(argv: list[str] | None = None) -> int:
     subprocess.run([find_jdk_tool("java"), "-cp", str(BUILD_DIR), GENERATOR_CLASS,
                     str(norm_csv), world_arg, str(script_json), name, str(args.interval), face_arg],
                    check=True)
+
+    # Step4：依實機馬達反應重排時間與速度（dance_script.json 換成重排後的，原始的另存）
+    if not args.no_retime:
+        import json
+
+        import retime
+        print("[4/4] retime (measured motor model)")
+        raw = json.loads(script_json.read_text(encoding="utf-8"))
+        model = retime.motor_model.load()
+        if model is None:
+            print("      找不到 sim/motor_response.json，略過重排")
+            return 0
+        new, stats = retime.retime(raw, model, args.lead_ms)
+        raw_json = out_dir / "dance_script.raw.json"
+        raw_json.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        script_json.write_text(json.dumps(new, ensure_ascii=False), encoding="utf-8")
+        retime.print_compare(retime.evaluate(raw, raw, model), retime.evaluate(raw, new, model))
+        print(f"      steps {len(raw['steps'])} -> {stats['steps']}, "
+              f"too fast for the motor {stats['saturated']}, shortened {stats['shortened']}")
+        print(f"      wrote {script_json} (original kept as {raw_json.name})")
     return 0
 
 
